@@ -3,7 +3,7 @@
 static const UartConfig * const xx_uartConfigs[] = {
   &cn_uartConfig,
   &ps_uartConfig,
-  &pl_uartConfig,
+  &el_uartConfig,
 };
 
 static void xx_uartConfigs_init() {

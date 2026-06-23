@@ -1,5 +1,5 @@
 
-static const char * const plDevice_commands[] = {
+static const char * const elDevice_commands[] = {
   ":SYSTem:BAUD?",
   ":SYSTem:BEEP?",
   ":SYSTem:PORT?",
@@ -16,14 +16,14 @@ static const char * const plDevice_commands[] = {
   ":MEASure:VOLTage?",
   ":MEASure:POWer?",
 };
-static void plDevice_commands_try()
+static void elDevice_commands_try()
 {
   const char * CMD_DEVINFO = ":SYSTem:DEVINFO?";
-  plDevice.command_try(CMD_DEVINFO, 7);
-    ARRAY_SIZE(plDevice_commands);
+  elDevice.command_try(CMD_DEVINFO, 7);
+    ARRAY_SIZE(elDevice_commands);
 #if 0
-  plDevice.commands_try(
-    plDevice_commands,
-    ARRAY_SIZE(plDevice_commands));
+  elDevice.commands_try(
+    elDevice_commands,
+    ARRAY_SIZE(elDevice_commands));
 #endif
 }

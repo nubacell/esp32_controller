@@ -6,6 +6,19 @@
 
 //#define COLLECT_MIN_MAX
 
+#define CN_UART_NUM             0
+#define CN_UART_BAUD            115200
+
+#define PS_UART_NUM             1
+#define PS_UART_BAUD            9600
+#define PS_UART_RX_GPIO         16
+#define PS_UART_TX_GPIO         17
+
+#define EL_UART_NUM             2
+#define EL_UART_BAUD            115200
+#define EL_UART_RX_GPIO         26
+#define EL_UART_TX_GPIO         25
+
 #define LOG_FUNCTION \
     Serial.print("--- "); \
     Serial.print(__func__); \
@@ -29,28 +42,27 @@
 #define MAKE_STRING_HELPER1(s) MAKE_STRING_HELPER2(s)
 #define MAKE_STRING(s) MAKE_STRING_HELPER1(s)
 
-#define CN_UART_NUM             0
-#define CN_UART_BAUD            115200
+static void log(const char *file, unsigned line, const char * function, const char * format, ...);
+#define LOG(format, args...) log(__FILE__, __LINE__, __FUNCTION__, format, ##args)
 
-#define PS_UART_NUM             1
-#define PS_UART_BAUD            9600
-#define PS_UART_RX_GPIO         16
-#define PS_UART_TX_GPIO         17
-
-#define PL_UART_NUM             2
-#define PL_UART_BAUD            115200
-#define PL_UART_RX_GPIO         26
-#define PL_UART_TX_GPIO         25
+static const char device_tag[] = "esp32";
 
 static const char CMD_IDENTIFY[] = "*IDN?";
 
-static void log(const char *file, unsigned line, const char * function, const char * format, ...);
-#define LOG(format, args...) log(__FILE__, __LINE__, __FUNCTION__, format, ##args)
+struct Runnable
+{
+  virtual void on_loop(uint32_t now_ms)
+  {
+    LOG("");
+  }
+};
 
 struct Profile {
 };
 
-struct Controller {
+struct Controller
+  : Runnable
+{
 
   enum class State {
 
@@ -72,6 +84,20 @@ struct Controller {
   };
   State state = State::init;
 
+  void on_ps_timeout()
+  {
+    LOG("");
+  }
+
+  void on_el_timeout()
+  {
+    LOG("");
+  }
+
+  void on_loop(uint32_t now_ms) override
+  {
+    //LOG("");
+  }
 };
 
 #define ucLOG(format, args...) LOG("%s| " format, tag, ##args)
@@ -116,22 +142,46 @@ struct UartConfig {
     ucLOG(". baud=%u", baud);
   }
 
-  void timeout(uint32_t timeout_ms) const {
+  size_t availableForRead() const {
+    return hs->available();
+  }
+
+  void timeout_(uint32_t timeout_ms) const {
     hs->setTimeout(timeout_ms);
   }
 
-  size_t read(char * p, size_t size) const {
-    return hs->readBytes(p, size);
+  size_t read_(byte * p, size_t size) const {
+    return hs->readBytes( (char*)p, size);
   }
 
   size_t read(byte * p, size_t size, uint32_t timeout_ms) const {
-    timeout(timeout_ms);
-    return read( (char*)p, size);
+    timeout_(timeout_ms);
+    return read_(p, size);
+  }
+
+  byte read_byte(uint32_t timeout_ms) const {
+    byte b = 0;
+    read(&b, sizeof(b), timeout_ms);
+    return b;
   }
 
   size_t readLine(byte * p, size_t size, uint32_t timeout_ms) const {
-    timeout(timeout_ms);
+    timeout_(timeout_ms);
     return hs->readBytesUntil('\n', p, size);
+  }
+
+  size_t readLine_z(byte * p, size_t size, uint32_t timeout_ms) const {
+    if (!size) {
+      return 0;
+    } else {
+      size_t len = readLine(p, size - 1, timeout_ms);
+      p[len] = '\0';
+      return len;
+    }
+  }
+
+  size_t availableForWrite() const {
+    return hs->availableForWrite();
   }
 
   void write(const byte b) const {
@@ -150,164 +200,93 @@ struct UartConfig {
   void finish_output() const {
     hs->flush();
   }
-
-  size_t availableForRead() const {
-    return hs->available();
-  }
-
-  size_t availableForWrite() const {
-    return hs->availableForWrite();
-  }
 };
 
-#define udLOG(format, args...) LOG("%s| " format, uartConfig->tag, ##args)
-struct UartDevice {
-  const UartConfig * uartConfig;
-  size_t i = 0;
-  static constexpr size_t buffer_size = 64;
-  byte buffer[buffer_size];
+#define udLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
+struct UartDevice
+  : Runnable
+{
+  const UartConfig * uartConfig_;
 
-  UartDevice(const UartConfig * uartConfig_)
-    : uartConfig(uartConfig_)
+  static constexpr size_t buffer_size = 64;
+  byte buffer_[buffer_size];
+  size_t buffer_used_ = 0;
+  bool eol_ = false;
+  bool overflow_ = false;
+
+  UartDevice(const UartConfig * uartConfig)
+    : uartConfig_(uartConfig)
   {}
 
-/*
-  void init() const {
-    uartConfig->init();
-  }
-*/
-
-  size_t read(byte * p, size_t size, uint32_t timeout_ms) const {
-    return uartConfig->read(p, size, timeout_ms);
-  }
-
-  size_t read(uint32_t timeout_ms) {
-    return read(buffer, sizeof(buffer), timeout_ms);
+  // assuming 'sizeof(buffer_) > 0'
+  void on_loop_readLine_reset()
+  {
+    buffer_used_ = 0;
+    overflow_ = false;
+    eol_ = false;
+    buffer_[0] = '\0'; // trailing '\0' for convenience
   }
 
-  size_t readLine(byte * p, size_t size, uint32_t timeout_ms) const {
-    return uartConfig->readLine(p, size, timeout_ms);
-  }
-
-  size_t readLine(uint32_t timeout_ms) {
-    size_t len = readLine(buffer, sizeof(buffer) - 1, timeout_ms);
-    buffer[len] = '\0';
-    return len;
-  }
-
-  void write(const byte b) {
-    uartConfig->write(b);
-  }
-
-  void write(const byte * p, size_t size) {
-    uartConfig->write(p, size);
-  }
-
-  void write(const char * s) const {
-    uartConfig->write(s);
-  }
-
-  // wait for all output data to be placed into output FIFO
-  void finish_output() const {
-    uartConfig->finish_output();
-  }
-
-  size_t availableForRead() const {
-    return uartConfig->availableForRead();
-  }
-
-  size_t availableForWrite() const {
-    return uartConfig->availableForWrite();
-  }
-
-  void empty_input(uint32_t timeout_ms) {
-#if defined COLLECT_MIN_MAX
-    const auto ms0 = millis();
-#endif
-    readLine(timeout_ms);
-
-#if defined COLLECT_MIN_MAX
-    const auto empty_input_ms = millis() - ms0;
-
-    static uint32_t empty_input_ms_min = 1000;
-    if (empty_input_ms_min > empty_input_ms) {
-      udLOG(". empty_input_ms_min=%u -> %u", empty_input_ms_min, empty_input_ms);
-      empty_input_ms_min = empty_input_ms;
-    }
-
-    static uint32_t empty_input_ms_max = 0;
-    if (empty_input_ms_max < empty_input_ms) {
-      udLOG(". empty_input_ms_max=%u -> %u", empty_input_ms_max, empty_input_ms);
-      empty_input_ms_max = empty_input_ms;
-    }
-#endif
-  }
-
-
-  byte read_byte(uint32_t timeout_ms) const {
-    byte b = 0;
-    read(&b, sizeof(b), timeout_ms);
-    return b;
-  }
-
-  void onBufferOverflow() {
-    udLOG("buffer full without CR or LF (sizeof(buffer)=%zu)", sizeof(buffer));
-    udLOG("buffer='%s'", buffer);
-    //i = 0;
-  }
-
-  void onLine() {
-    udLOG("buffer='%s'", buffer);
-    //i = 0;
-  }
-
-  // assuming 'sizeof(buffer) > 0'
-  // assuming 'i < sizeof(buffer)'
-  void on_availableForRead(size_t size) {
-    while (size--) {
-      const auto b = read_byte(0);
-      if ('\n' == b || '\r' == b) { // EOL = End Of Line
-        buffer[i] = '\0';
-        onLine();
-        i = 0; // start next logical read loop from the beginning
-      } else {
-        if (i < (sizeof(buffer) - 1)) {
-          buffer[i++] = b;
+  // returns '(eol_ || overflow_)'
+  bool on_loop_readLine()
+  {
+    if (!eol_ && !overflow_) {
+      auto available = uartConfig_->availableForRead();
+      while (available--) {
+        const auto b = uartConfig_->read_byte(0);
+        if ('\n' == b) {
+          eol_ = true;
+          break;
+        } else
+        // reserve space for trailing '\0'
+        if ((buffer_used_ + 1) < sizeof(buffer_)) {
+          buffer_[buffer_used_++] = b;
+          buffer_[buffer_used_] = '\0';
         } else {
-          // Note: last received symbol is discarded here
-          buffer[i] = '\0';
-          onBufferOverflow();
-          i = 0; // start next logical read loop from the beginning
+          overflow_ = true;
+          break;
         }
       }
     }
+    return eol_ || overflow_;
   }
 
-/*
-  void poll() {
-    on_availableForRead(availableForRead());
-  }
-*/
-
-  virtual
-  void on_loop(uint32_t now_ms)
+  void on_loop(uint32_t now_ms) override
   {
-    on_availableForRead(availableForRead());
+    if (on_loop_readLine()) {
+      udLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      on_loop_readLine_reset();
+    }
   }
 };
 
-#define PxLOG udLOG
+#define cnLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
+struct CN_Device
+  : UartDevice
+{
+  CN_Device(
+      const UartConfig * uartConfig)
+    : UartDevice(uartConfig)
+  {}
+
+  void on_loop(uint32_t now_ms) override
+  {
+    // FIXME: implement necessary 'business logic'
+    UartDevice::on_loop(now_ms);
+  }
+};
+
+#define PxLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
 struct PxDevice
   : UartDevice
 {
   const char * const expected_id;
-  uint32_t timeout_ms = 0;
-  bool identify_bufferOverflow = false;
+  uint32_t timeout_time_ms = 0;
 
   PxDevice(
-      const UartConfig * uartConfig_,
+      const UartConfig * uartConfig,
       const char * const expected_id_)
-    : UartDevice(uartConfig_)
+    : UartDevice(uartConfig)
     , expected_id(expected_id_)
   {}
 
@@ -343,7 +322,7 @@ struct PxDevice
           template of longest possible answer.
     */
     sync,
-    sync_empty_input,
+    sync_discard_input,
 
     /*
       Identify attached Px (PS or PL) device.
@@ -374,83 +353,10 @@ struct PxDevice
   };
   State state = State::init;
 
-  void readLine_v(uint32_t timeout_ms) {
-    if (!readLine(timeout_ms)) {
-      PxLOG("!!! nothing received");
-#if 0
-    } else {
-      PxLOG("buffer='%s'", buffer);
-#endif
-    }
+  void write_cmd(const char * s) const {
+    uartConfig_->write(s);
+    uartConfig_->write('\n');
   }
-
-  void write_cmd(const char * s) {
-    write(s);
-    write('\n');
-  }
-
-  void identify() {
-#if defined COLLECT_MIN_MAX
-    const auto ms0 = millis();
-#endif
-
-    write_cmd(CMD_IDENTIFY);
-    //const auto write_ms = millis();
-
-    finish_output();
-    //const auto flush_ms = millis();
-
-    constexpr uint32_t identify_timeout_ms = 120;
-    readLine_v(identify_timeout_ms);
-
-#if defined COLLECT_MIN_MAX
-    const auto poll_ms = millis();
-
-    //PxLOG("flush_ms=%u poll_ms=%u", flush_ms - ms0, poll_ms - flush_ms);
-
-    const auto identify_ms = poll_ms - ms0;
-    static uint32_t identify_ms_min = 1000;
-    if (identify_ms_min > identify_ms) {
-      PxLOG(". identify_ms_min=%u -> %u", identify_ms_min, identify_ms);
-      identify_ms_min = identify_ms;
-    }
-
-    static uint32_t identify_ms_max = 0;
-    if (identify_ms_max < identify_ms) {
-      PxLOG(". identify_ms_max=%u -> %u", identify_ms_max, identify_ms);
-      identify_ms_max = identify_ms;
-    }
-#endif
-
-    if (strcmp(expected_id, (const char*) buffer)) {
-      PxLOG("identify mismatch");
-      PxLOG(". expected '%s'", expected_id);
-      PxLOG(". actual   '%s'", buffer);
-    }
-  }
-
-  void sync()
-  {
-// FIXME: remove the following from 'production' build.
-#if 0
-    // Note: the following is to simulate incomplete command sent before reboot
-    write(CMD_IDENTIFY);
-#endif
-
-    write('\n'); // ends unfinished 'command' output
-    finish_output();
-    constexpr uint32_t empty_input_timeout_ms = 100;
-    empty_input(empty_input_timeout_ms);
-  }
-
-/*
-  void init() {
-    UartDevice::init();
-    sync();
-    identify();
-    PxLOG("buffer='%s'", buffer);
-  }
-*/
 
   void command_try(
     const char * const command,
@@ -459,10 +365,10 @@ struct PxDevice
     write_cmd(command);
     while (answer_lines_count--) {
       const uint32_t timeout_ms = 100;
-      if (!readLine(timeout_ms)) {
+      if (!uartConfig_->readLine_z(buffer_, sizeof(buffer_), timeout_ms)) {
         PxLOG("'%s' -> '%s'", command, "timeout");
       } else {
-        PxLOG("'%s' -> '%s'", command, buffer);
+        PxLOG("'%s' -> '%s'", command, buffer_);
       }
     }
   }
@@ -477,6 +383,7 @@ struct PxDevice
     }
   }
 
+
   void on_state_init(uint32_t now_ms)
   {
     PxLOG("");
@@ -486,27 +393,31 @@ struct PxDevice
   void on_state_sync(uint32_t now_ms)
   {
     PxLOG("");
+    on_loop_readLine_reset();
 
     // FIXME: remove the following from 'production' build.
 #if 0
     // Note: the following is to simulate incomplete command sent before reboot
-    write(CMD_IDENTIFY);
+    uartConfig_->write(CMD_IDENTIFY);
 #endif
 
-    write('\n'); // ends unfinished 'command' output
+    uartConfig_->write('\n'); // ends unfinished 'command' output
 
-    constexpr uint32_t empty_input_timeout_ms = 100;
-    timeout_ms = now_ms + empty_input_timeout_ms;
+    constexpr uint32_t discard_input_timeout_ms = 100;
+    timeout_time_ms = now_ms + discard_input_timeout_ms;
 
     state = State(unsigned(state)+1); // ++state;
   }
 
-  void on_state_sync_empty_input(uint32_t now_ms)
+  void on_state_sync_discard_input(uint32_t now_ms)
   {
     //PxLOG("");
-    empty_input(0);
-    if (timeout_ms <= now_ms) {
-      PxLOG("%s %s", "sync/empty_input", "timeout/success");
+    if (on_loop_readLine()) {
+      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      on_loop_readLine_reset();
+    }
+    if (timeout_time_ms <= now_ms) {
+      PxLOG("%s %s", "sync/discard_input", "timeout/success");
       state = State(unsigned(state)+1); // ++state;
     }
   }
@@ -514,46 +425,41 @@ struct PxDevice
   void on_state_identify(uint32_t now_ms)
   {
     PxLOG("");
-    i = 0; // store answer starting from beginning of buffer
-    identify_bufferOverflow = false;
+    on_loop_readLine_reset();
 
     write_cmd(CMD_IDENTIFY);
 
     constexpr uint32_t identify_timeout_ms = 120;
-    timeout_ms = now_ms + identify_timeout_ms;
+    timeout_time_ms = now_ms + identify_timeout_ms;
 
     state = State(unsigned(state)+1); // ++state;
   }
 
   // assuming 'sizeof(buffer) > 0'
-  // assuming 'i < sizeof(buffer)'
   void on_state_identify_read_answer(uint32_t now_ms)
   {
     //PxLOG("");
-    size_t availableForRead_ = availableForRead();
-    while (availableForRead_--) {
-      const auto b = read_byte(0);
-      if ('\n' == b || '\r' == b) { // EOL = End Of Line
-        buffer[i] = '\0';
-        // Note: 'i' holds length of answer
-        // TODO: make copy of 'buffer' for later use
-        PxLOG("%s %s id='%s'", "identify", "success", buffer);
+    if (on_loop_readLine()) {
+      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      if (eol_) {
+
+        // TODO: check id match
 
         state = State(unsigned(state)+1); // ++state;
-        return;
-      } else {
-        if (i < (sizeof(buffer) - 1)) {
-          buffer[i++] = b;
-        } else {
-          // Note: last received symbol is discarded here
-          buffer[i] = '\0';
-          identify_bufferOverflow = true;
-        }
+      } else if (overflow_) {
+
+        // TODO: Mark device as unusable.
+        // TODO: Retry identification after some delay.
+
+        state = State(unsigned(state)+1); // ++state;
+      } else if (timeout_time_ms <= now_ms) {
+        PxLOG("%s %s id='%s'", "identify", "timeout", buffer_);
+
+        // TODO: Mark device as unusable.
+        // TODO: Retry identification after some delay.
+
+        state = State(unsigned(state)+1); // ++state;
       }
-    }
-    if (timeout_ms <= now_ms) {
-      PxLOG("%s %s id='%s'", "identify", "timeout", buffer);
-      state = State(unsigned(state)+1); // ++state;
     }
   }
 
@@ -567,27 +473,44 @@ struct PxDevice
     PxLOG("");
   }
 
-  //virtual
   void on_loop(uint32_t now_ms) override
   {
     switch (state) {
 #define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
       CASE_CALL(init)
       CASE_CALL(sync)
-      CASE_CALL(sync_empty_input)
+      CASE_CALL(sync_discard_input)
       CASE_CALL(identify)
       CASE_CALL(identify_read_answer)
       CASE_CALL(idle)
       CASE_CALL(active)
 #undef CASE_CALL
       default:
-        UartDevice::on_loop(now_ms);
+        PxLOG("");
         break;
     }
   }
 };
 
-Controller controller;
+struct PS_Device
+  : PxDevice
+{
+  PS_Device(
+      const UartConfig * uartConfig_,
+      const char * const expected_id_)
+    : PxDevice(uartConfig_, expected_id_)
+  {}
+};
+
+struct EL_Device
+  : PxDevice
+{
+  EL_Device(
+      const UartConfig * uartConfig_,
+      const char * const expected_id_)
+    : PxDevice(uartConfig_, expected_id_)
+  {}
+};
 
 static const UartConfig cn_uartConfig = {
   .tag =  "CN-u" MAKE_STRING(CN_UART_NUM),
@@ -607,20 +530,20 @@ static const UartConfig ps_uartConfig = {
   .txd_gpio = PS_UART_TX_GPIO,
 };
 
-static const UartConfig pl_uartConfig = {
-  .tag = "PL-u" MAKE_STRING(PL_UART_NUM),
+static const UartConfig el_uartConfig = {
+  .tag = "EL-u" MAKE_STRING(EL_UART_NUM),
   .hs = &Serial2,
-  .baud = PL_UART_BAUD,
+  .baud = EL_UART_BAUD,
   .n = 2,
-  .rxd_gpio = PL_UART_RX_GPIO,
-  .txd_gpio = PL_UART_TX_GPIO,
+  .rxd_gpio = EL_UART_RX_GPIO,
+  .txd_gpio = EL_UART_TX_GPIO,
 };
 
 #if 1
 static const UartConfig * const xx_uartConfigs[] = {
   &cn_uartConfig,
   &ps_uartConfig,
-  &pl_uartConfig,
+  &el_uartConfig,
 };
 
 static void xx_uartConfigs_init() {
@@ -630,13 +553,13 @@ static void xx_uartConfigs_init() {
 }
 #endif
 
-static UartDevice cnDevice = {
+static CN_Device cnDevice = {
   /*.uartConfig =*/ &cn_uartConfig,
 };
 
 // 'TENMA 72-2710 V6.6 SN:31428462'
 
-static PxDevice psDevice {
+static PS_Device psDevice {
   /*.uartConfig =*/ &ps_uartConfig,
   /*.expected_id =*/ "TENMA 72-2710 V6.6 SN:31428462",
 };
@@ -678,14 +601,14 @@ static void psDevice_commands_try()
 // 'TENMA 72-13210 V2.20 SN:00010724'
 // 'TENMA 72-13210 V2.50 SN:00012161'
 
-static PxDevice plDevice = {
-  /*.uartConfig =*/ &pl_uartConfig,
+static EL_Device elDevice = {
+  /*.uartConfig =*/ &el_uartConfig,
   /*.expected_id =*/
   //"TENMA 72-13210 V2.50 SN:00012161",
   "TENMA 72-13210 V2.20 SN:00010724",
 };
 
-static const char * const plDevice_commands[] = {
+static const char * const elDevice_commands[] = {
   ":SYSTem:BAUD?",
   ":SYSTem:BEEP?",
   ":SYSTem:PORT?",
@@ -702,21 +625,21 @@ static const char * const plDevice_commands[] = {
   ":MEASure:VOLTage?",
   ":MEASure:POWer?",
 };
-static void plDevice_commands_try()
+static void elDevice_commands_try()
 {
   const char * CMD_DEVINFO = ":SYSTem:DEVINFO?";
-  plDevice.command_try(CMD_DEVINFO, 7);
-    ARRAY_SIZE(plDevice_commands);
+  elDevice.command_try(CMD_DEVINFO, 7);
+    ARRAY_SIZE(elDevice_commands);
 #if 0
-  plDevice.commands_try(
-    plDevice_commands,
-    ARRAY_SIZE(plDevice_commands));
+  elDevice.commands_try(
+    elDevice_commands,
+    ARRAY_SIZE(elDevice_commands));
 #endif
 }
-static UartDevice * const uartDevices[] = {
+static Runnable * const uartDevices[] = {
   &cnDevice,
   &psDevice,
-  &plDevice,
+  &elDevice,
 };
 
 static void uartDevices_on_loop(int32_t now_ms) {
@@ -724,6 +647,8 @@ static void uartDevices_on_loop(int32_t now_ms) {
     uartDevices[i]->on_loop(now_ms);
   }
 }
+
+Controller controller;
 
 void hex_dump(const uint8_t * data, size_t size)
 {
@@ -783,6 +708,11 @@ void log(const char *file, unsigned line, const char * function, const char * fo
   }
 }
 
+static void report_config()
+{
+  Serial.print("device: '"); Serial.print(device_tag); Serial.println("'");
+}
+
 #if 0
 void serial_setup()
 {
@@ -823,21 +753,42 @@ void loop()
   static uint32_t loop_count = 0;
 
   uint32_t now_ms = millis();
+  const auto now_s = now_ms / 1000;
+
+#if 1
+  static uint32_t report_config_s = 0;
+  if (now_s - report_config_s >= 5*60) {
+    report_config();
+    report_config_s = now_s;
+  }
+#endif
+
+  static uint32_t report_count_s = 0;
+  if (now_s - report_count_s >= 5) {
+    Serial.print(device_tag);
+    Serial.print(" now_ms="); Serial.print(now_ms);
+    Serial.print(" loop_count="); Serial.println(loop_count);
+
+    report_count_s = now_s;
+  }
 
   //psDevice.identify();
-  //plDevice.identify();
+  //elDevice.identify();
 
   //cnDevice.poll();
   //psDevice.poll();
-  //plDevice.poll();
+  //elDevice.poll();
 
   uartDevices_on_loop(now_ms);
+  controller.on_loop(now_ms);
 
+#if 0
   if (psDevice.state == PxDevice::State::idle
-  &&  plDevice.state == PxDevice::State::idle) {
+  &&  elDevice.state == PxDevice::State::idle) {
     LOG_FUNCTION
     delay(15000);
   }
+#endif
 
   ++loop_count;
 }

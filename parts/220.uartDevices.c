@@ -1,7 +1,7 @@
-static UartDevice * const uartDevices[] = {
+static Runnable * const uartDevices[] = {
   &cnDevice,
   &psDevice,
-  &plDevice,
+  &elDevice,
 };
 
 static void uartDevices_on_loop(int32_t now_ms) {

@@ -41,22 +41,46 @@ struct UartConfig {
     ucLOG(". baud=%u", baud);
   }
 
-  void timeout(uint32_t timeout_ms) const {
+  size_t availableForRead() const {
+    return hs->available();
+  }
+
+  void timeout_(uint32_t timeout_ms) const {
     hs->setTimeout(timeout_ms);
   }
 
-  size_t read(char * p, size_t size) const {
-    return hs->readBytes(p, size);
+  size_t read_(byte * p, size_t size) const {
+    return hs->readBytes( (char*)p, size);
   }
 
   size_t read(byte * p, size_t size, uint32_t timeout_ms) const {
-    timeout(timeout_ms);
-    return read( (char*)p, size);
+    timeout_(timeout_ms);
+    return read_(p, size);
+  }
+
+  byte read_byte(uint32_t timeout_ms) const {
+    byte b = 0;
+    read(&b, sizeof(b), timeout_ms);
+    return b;
   }
 
   size_t readLine(byte * p, size_t size, uint32_t timeout_ms) const {
-    timeout(timeout_ms);
+    timeout_(timeout_ms);
     return hs->readBytesUntil('\n', p, size);
+  }
+
+  size_t readLine_z(byte * p, size_t size, uint32_t timeout_ms) const {
+    if (!size) {
+      return 0;
+    } else {
+      size_t len = readLine(p, size - 1, timeout_ms);
+      p[len] = '\0';
+      return len;
+    }
+  }
+
+  size_t availableForWrite() const {
+    return hs->availableForWrite();
   }
 
   void write(const byte b) const {
@@ -74,13 +98,5 @@ struct UartConfig {
   // wait for all output data to be placed into output FIFO
   void finish_output() const {
     hs->flush();
-  }
-
-  size_t availableForRead() const {
-    return hs->available();
-  }
-
-  size_t availableForWrite() const {
-    return hs->availableForWrite();
   }
 };

@@ -1,6 +1,8 @@
 
 #define udLOG(format, args...) LOG("%s| " format, uartConfig->tag, ##args)
-struct UartDevice {
+struct UartDevice
+  : Runnable
+{
   const UartConfig * uartConfig;
   size_t i = 0;
   static constexpr size_t buffer_size = 64;
@@ -16,12 +18,22 @@ struct UartDevice {
   }
 */
 
+  size_t availableForRead() const {
+    return uartConfig->availableForRead();
+  }
+
   size_t read(byte * p, size_t size, uint32_t timeout_ms) const {
     return uartConfig->read(p, size, timeout_ms);
   }
 
   size_t read(uint32_t timeout_ms) {
     return read(buffer, sizeof(buffer), timeout_ms);
+  }
+
+  byte read_byte(uint32_t timeout_ms) const {
+    byte b = 0;
+    read(&b, sizeof(b), timeout_ms);
+    return b;
   }
 
   size_t readLine(byte * p, size_t size, uint32_t timeout_ms) const {
@@ -34,11 +46,15 @@ struct UartDevice {
     return len;
   }
 
-  void write(const byte b) {
+  size_t availableForWrite() const {
+    return uartConfig->availableForWrite();
+  }
+
+  void write(const byte b) const {
     uartConfig->write(b);
   }
 
-  void write(const byte * p, size_t size) {
+  void write(const byte * p, size_t size) const {
     uartConfig->write(p, size);
   }
 
@@ -51,43 +67,29 @@ struct UartDevice {
     uartConfig->finish_output();
   }
 
-  size_t availableForRead() const {
-    return uartConfig->availableForRead();
-  }
-
-  size_t availableForWrite() const {
-    return uartConfig->availableForWrite();
-  }
-
-  void empty_input(uint32_t timeout_ms) {
+  void discard_input(uint32_t timeout_ms) {
 #if defined COLLECT_MIN_MAX
     const auto ms0 = millis();
 #endif
     readLine(timeout_ms);
 
 #if defined COLLECT_MIN_MAX
-    const auto empty_input_ms = millis() - ms0;
+    const auto discard_input_ms = millis() - ms0;
 
-    static uint32_t empty_input_ms_min = 1000;
-    if (empty_input_ms_min > empty_input_ms) {
-      udLOG(". empty_input_ms_min=%u -> %u", empty_input_ms_min, empty_input_ms);
-      empty_input_ms_min = empty_input_ms;
+    static uint32_t discard_input_ms_min = 1000;
+    if (discard_input_ms_min > discard_input_ms) {
+      udLOG(". discard_input_ms_min=%u -> %u", discard_input_ms_min, discard_input_ms);
+      discard_input_ms_min = discard_input_ms;
     }
 
-    static uint32_t empty_input_ms_max = 0;
-    if (empty_input_ms_max < empty_input_ms) {
-      udLOG(". empty_input_ms_max=%u -> %u", empty_input_ms_max, empty_input_ms);
-      empty_input_ms_max = empty_input_ms;
+    static uint32_t discard_input_ms_max = 0;
+    if (discard_input_ms_max < discard_input_ms) {
+      udLOG(". discard_input_ms_max=%u -> %u", discard_input_ms_max, discard_input_ms);
+      discard_input_ms_max = discard_input_ms;
     }
 #endif
   }
 
-
-  byte read_byte(uint32_t timeout_ms) const {
-    byte b = 0;
-    read(&b, sizeof(b), timeout_ms);
-    return b;
-  }
 
   void onBufferOverflow() {
     udLOG("buffer full without CR or LF (sizeof(buffer)=%zu)", sizeof(buffer));
@@ -122,14 +124,7 @@ struct UartDevice {
     }
   }
 
-/*
-  void poll() {
-    on_availableForRead(availableForRead());
-  }
-*/
-
-  virtual
-  void on_loop(uint32_t now_ms)
+  void on_loop(uint32_t now_ms) override
   {
     on_availableForRead(availableForRead());
   }

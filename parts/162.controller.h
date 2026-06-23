@@ -1,5 +1,7 @@
 
-struct Controller {
+struct Controller
+  : Runnable
+{
 
   enum class State {
 
@@ -21,4 +23,18 @@ struct Controller {
   };
   State state = State::init;
 
+  void on_ps_timeout()
+  {
+    LOG("");
+  }
+
+  void on_el_timeout()
+  {
+    LOG("");
+  }
+
+  void on_loop(uint32_t now_ms) override
+  {
+    //LOG("");
+  }
 };

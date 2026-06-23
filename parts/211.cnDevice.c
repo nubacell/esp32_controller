@@ -1,4 +1,4 @@
 
-static UartDevice cnDevice = {
+static CN_Device cnDevice = {
   /*.uartConfig =*/ &cn_uartConfig,
 };
