@@ -31,7 +31,7 @@ struct UartDevice
       auto available = uartConfig_->availableForRead();
       while (available--) {
         const auto b = uartConfig_->read_byte(0);
-        if ('\n' == b) {
+        if ('\n' == b || '\r' == b) {
           eol_ = true;
           break;
         } else

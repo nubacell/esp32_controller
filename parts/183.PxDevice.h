@@ -121,6 +121,7 @@ struct PxDevice
     // FIXME: remove the following from 'production' build.
 #if 0
     // Note: the following is to simulate incomplete command sent before reboot
+    //write_cmd(CMD_IDENTIFY);
     uartConfig_->write(CMD_IDENTIFY);
 #endif
 
@@ -189,6 +190,10 @@ struct PxDevice
   void on_state_idle(uint32_t now_ms)
   {
     //PxLOG("");
+    if (on_loop_readLine()) {
+      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      on_loop_readLine_reset();
+    }
   }
 
   void on_state_active(uint32_t now_ms)

@@ -38,6 +38,8 @@
 
 #define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 
+#define CONSTSTRLEN(s) (sizeof(s)-1)
+
 #define MAKE_STRING_HELPER2(s) #s
 #define MAKE_STRING_HELPER1(s) MAKE_STRING_HELPER2(s)
 #define MAKE_STRING(s) MAKE_STRING_HELPER1(s)
@@ -137,8 +139,8 @@ struct UartConfig {
   */
   void init() const {
     hs->begin(baud, SERIAL_8N1, rxd_gpio, txd_gpio);
-    ucLOG(". Rx GPIO=%u", rxd_gpio);
-    ucLOG(". Tx GPIO=%u", txd_gpio);
+    ucLOG(". Rx GPIO=%i", rxd_gpio);
+    ucLOG(". Tx GPIO=%i", txd_gpio);
     ucLOG(". baud=%u", baud);
   }
 
@@ -202,6 +204,47 @@ struct UartConfig {
   }
 };
 
+static const UartConfig cn_uartConfig = {
+  .tag =  "CN-u" MAKE_STRING(CN_UART_NUM),
+  .hs = &Serial,
+  .baud = CN_UART_BAUD,
+  .n = 0,
+  .rxd_gpio = -1, // '-1' == 'do not change'
+  .txd_gpio = -1, // '-1' == 'do not change'
+};
+
+static const UartConfig ps_uartConfig = {
+  .tag =  "PS-u" MAKE_STRING(PS_UART_NUM),
+  .hs = &Serial1,
+  .baud = PS_UART_BAUD,
+  .n = 1,
+  .rxd_gpio = PS_UART_RX_GPIO,
+  .txd_gpio = PS_UART_TX_GPIO,
+};
+
+static const UartConfig el_uartConfig = {
+  .tag = "EL-u" MAKE_STRING(EL_UART_NUM),
+  .hs = &Serial2,
+  .baud = EL_UART_BAUD,
+  .n = 2,
+  .rxd_gpio = EL_UART_RX_GPIO,
+  .txd_gpio = EL_UART_TX_GPIO,
+};
+
+#if 1
+static const UartConfig * const xx_uartConfigs[] = {
+  &cn_uartConfig,
+  &ps_uartConfig,
+  &el_uartConfig,
+};
+
+static void xx_uartConfigs_init() {
+  for (unsigned i = 0; i < ARRAY_SIZE(xx_uartConfigs); ++i) {
+    xx_uartConfigs[i]->init();
+  }
+}
+#endif
+
 #define udLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
 struct UartDevice
   : Runnable
@@ -234,7 +277,7 @@ struct UartDevice
       auto available = uartConfig_->availableForRead();
       while (available--) {
         const auto b = uartConfig_->read_byte(0);
-        if ('\n' == b) {
+        if ('\n' == b || '\r' == b) {
           eol_ = true;
           break;
         } else
@@ -260,6 +303,110 @@ struct UartDevice
   }
 };
 
+// u1_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
+// u1_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
+// u1_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
+// u1_lf *IDN?
+
+// u2_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
+// u2_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
+// u2_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
+// u2_lf *IDN?
+
+  //static
+  void ux_hex(unsigned n, const char * args)
+  {
+    const UartConfig * uartConfig0 = xx_uartConfigs[0];
+    const UartConfig * uartConfig = xx_uartConfigs[n];
+    for (;;) {
+      while (' ' == *args) { ++args; }
+      if (!*args) { break; }
+      char * endptr = NULL;
+      uint8_t xx = strtoul(args, &endptr, 0);
+      LOG(". xx='0x%02X'", xx);
+
+      uartConfig0->write('"');
+      uartConfig0->write(xx);
+      uartConfig0->write('"');
+      uartConfig0->write('\r');
+      uartConfig0->write('\n');
+
+      uartConfig->write(xx);
+      args = endptr;
+    }
+  }
+
+  //static
+  void ux_cr(unsigned n, const char * args)
+  {
+    const UartConfig * uartConfig = xx_uartConfigs[n];
+    uartConfig->write(args);
+    uartConfig->write('\r');
+  }
+
+  //static
+  void ux_lf(unsigned n, const char * args)
+  {
+    const UartConfig * uartConfig = xx_uartConfigs[n];
+    uartConfig->write(args);
+    uartConfig->write('\r');
+  }
+
+  void u1_hex(const char * args) { ux_hex(1, args); }
+  void u2_hex(const char * args) { ux_hex(2, args); }
+  void u1_cr(const char * args) { ux_cr(1, args); }
+  void u2_cr(const char * args) { ux_cr(2, args); }
+  void u1_lf(const char * args) { ux_lf(1, args); }
+  void u2_lf(const char * args) { ux_lf(2, args); }
+
+  typedef void (*command_fn_t)(const char * args);
+
+  typedef struct commands_map_s {
+    const char * command_s;
+    size_t command_len;
+    command_fn_t command_fn;
+  } commands_map_t;
+
+  static const commands_map_t commands_map[] = {
+#define CMD(x) { #x, CONSTSTRLEN(#x), x, }
+    CMD(u1_hex),
+    CMD(u2_hex),
+    CMD(u1_cr),
+    CMD(u2_cr),
+    CMD(u1_lf),
+    CMD(u2_lf),
+#undef CMD
+  };
+
+  static
+  void
+  print_commands(
+      const commands_map_t * commands_map,
+      size_t commands_count)
+  {
+    LOG("Available commands:");
+    for (unsigned i = 0; i < commands_count; ++i) {
+      LOG(". %s", commands_map[i].command_s);
+    }
+  }
+
+  static
+  command_fn_t
+  command_s_to_fn(
+      const commands_map_t * commands_map,
+      size_t commands_count,
+      const char * command_s,
+      size_t command_len)
+  {
+    for (unsigned i = 0; i < commands_count; ++i) {
+      if (commands_map[i].command_len == command_len
+      && !strncmp(command_s, commands_map[i].command_s, command_len)) {
+        return commands_map[i].command_fn;
+      }
+    }
+    return NULL;
+  }
+
 #define cnLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
 struct CN_Device
   : UartDevice
@@ -267,12 +414,35 @@ struct CN_Device
   CN_Device(
       const UartConfig * uartConfig)
     : UartDevice(uartConfig)
-  {}
+  {
+    cnLOG("device_tag='%s'", device_tag);
+  }
+
+  void on_loop_on_line(const char * s)
+  {
+    const char * p = strchr(s, ' ');
+    size_t len = (!p) ? strlen(s) : p - s;
+    const char * args = s + len + 1;
+    cnLOG("len=%zu args='%s'", len, args);
+
+    command_fn_t command_fn = command_s_to_fn(
+        commands_map, ARRAY_SIZE(commands_map), s, len);
+
+    if (!command_fn) {
+      printf("There is no command '%*s'\n", (int)len, s);
+      print_commands(commands_map, ARRAY_SIZE(commands_map));
+    } else {
+      command_fn(args);
+    }
+  }
 
   void on_loop(uint32_t now_ms) override
   {
-    // FIXME: implement necessary 'business logic'
-    UartDevice::on_loop(now_ms);
+    if (on_loop_readLine()) {
+      cnLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      on_loop_on_line( (const char *) buffer_);
+      on_loop_readLine_reset();
+    }
   }
 };
 
@@ -398,6 +568,7 @@ struct PxDevice
     // FIXME: remove the following from 'production' build.
 #if 0
     // Note: the following is to simulate incomplete command sent before reboot
+    //write_cmd(CMD_IDENTIFY);
     uartConfig_->write(CMD_IDENTIFY);
 #endif
 
@@ -466,6 +637,10 @@ struct PxDevice
   void on_state_idle(uint32_t now_ms)
   {
     //PxLOG("");
+    if (on_loop_readLine()) {
+      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      on_loop_readLine_reset();
+    }
   }
 
   void on_state_active(uint32_t now_ms)
@@ -500,6 +675,42 @@ struct PS_Device
       const char * const expected_id_)
     : PxDevice(uartConfig_, expected_id_)
   {}
+
+  // 31 2e 30 30 30 0a                                 |1.000.|
+  // 31 2e 32 33 34 0a                                 |1.234.|
+  // 35 2e 31 30 30 0a                                 |5.100.|         ISET1:12.345    ISET1:9.999
+  void get_I()
+  {
+    write_cmd("ISET1?");
+  }
+
+  // 30 39 2e 30 30 0a                                 |09.00.|
+  // 31 32 2e 33 34 0a                                 |12.34.|
+  // 30 30 2e 31 32 0a                                 |00.12.|
+  // 33 31 2e 30 30 0a                                 |31.00.|
+  // 30 30 2e 30 30 0a                                 |00.00.|
+  void get_V()
+  {
+    write_cmd("VSET1?");
+  }
+
+  void set_I(double v)
+  {
+    char cmd[sizeof("ISET1:9.999")];
+    snprintf(cmd, sizeof(cmd), "ISET1:%.3f", v);
+    write_cmd(cmd);
+
+    get_I();
+  }
+
+  void set_V(double v)
+  {
+    char cmd[sizeof("VSET1:99.99")];
+    snprintf(cmd, sizeof(cmd), "VSET1:%.2f", v);
+    write_cmd(cmd);
+
+    get_V();
+  }
 };
 
 struct EL_Device
@@ -510,48 +721,49 @@ struct EL_Device
       const char * const expected_id_)
     : PxDevice(uartConfig_, expected_id_)
   {}
-};
 
-static const UartConfig cn_uartConfig = {
-  .tag =  "CN-u" MAKE_STRING(CN_UART_NUM),
-  .hs = &Serial,
-  .baud = CN_UART_BAUD,
-  .n = 0,
-  .rxd_gpio = -1, // '-1' == 'do not change'
-  .txd_gpio = -1, // '-1' == 'do not change'
-};
-
-static const UartConfig ps_uartConfig = {
-  .tag =  "PS-u" MAKE_STRING(PS_UART_NUM),
-  .hs = &Serial1,
-  .baud = PS_UART_BAUD,
-  .n = 1,
-  .rxd_gpio = PS_UART_RX_GPIO,
-  .txd_gpio = PS_UART_TX_GPIO,
-};
-
-static const UartConfig el_uartConfig = {
-  .tag = "EL-u" MAKE_STRING(EL_UART_NUM),
-  .hs = &Serial2,
-  .baud = EL_UART_BAUD,
-  .n = 2,
-  .rxd_gpio = EL_UART_RX_GPIO,
-  .txd_gpio = EL_UART_TX_GPIO,
-};
-
-#if 1
-static const UartConfig * const xx_uartConfigs[] = {
-  &cn_uartConfig,
-  &ps_uartConfig,
-  &el_uartConfig,
-};
-
-static void xx_uartConfigs_init() {
-  for (unsigned i = 0; i < ARRAY_SIZE(xx_uartConfigs); ++i) {
-    xx_uartConfigs[i]->init();
+  // 30 2e 31 30 30 30 41 0a                           |0.1000A.|
+  // u2_lf :CURRent?
+  void get_I()
+  {
+    write_cmd(":CURRent?");
   }
-}
-#endif
+
+  // 30 2e 31 30 30 30 56 0a                           |0.1000V.|
+  // u2_lf :VOLTage?
+  void get_V()
+  {
+    write_cmd(":VOLTage?");
+  }
+
+  // u2_lf :CURRent?
+  // u2_lf :CURRent 1A
+  // u2_lf :CURRent 30A
+  // u2_lf :CURRent 12.345A
+  void set_I(double v)
+  {
+    char cmd[sizeof(":CURRent1 9.9999A")];
+    snprintf(cmd, sizeof(cmd), ":CURRent1 %.4fA", v);
+    write_cmd(cmd);
+
+    get_I();
+  }
+
+  // u2_lf :VOLTage 1V
+  // u2_lf :VOLTage 120V
+  // u2_lf :VOLTage 1000V
+  // u2_lf :VOLTage 113.45V
+  // u2_lf :VOLTage 111.22V
+  // u2_lf :VOLTage 12.321V
+  void set_V(double v)
+  {
+    char cmd[sizeof(":VOLTage1:9.9999V")];
+    snprintf(cmd, sizeof(cmd), ":VOLTage1 %.4fV", v);
+    write_cmd(cmd);
+
+    get_V();
+  }
+};
 
 static CN_Device cnDevice = {
   /*.uartConfig =*/ &cn_uartConfig,

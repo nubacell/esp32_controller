@@ -36,8 +36,8 @@ struct UartConfig {
   */
   void init() const {
     hs->begin(baud, SERIAL_8N1, rxd_gpio, txd_gpio);
-    ucLOG(". Rx GPIO=%u", rxd_gpio);
-    ucLOG(". Tx GPIO=%u", txd_gpio);
+    ucLOG(". Rx GPIO=%i", rxd_gpio);
+    ucLOG(". Tx GPIO=%i", txd_gpio);
     ucLOG(". baud=%u", baud);
   }
 
