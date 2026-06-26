@@ -41,6 +41,14 @@ struct UartConfig {
     ucLOG(". baud=%u", baud);
   }
 
+  uint32_t baudRate() const {
+    return hs->baudRate();
+  }
+
+  void baudRate(uint32_t baud) const {
+    hs->updateBaudRate(baud);
+  }
+
   size_t availableForRead() const {
     return hs->available();
   }

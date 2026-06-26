@@ -119,6 +119,7 @@ struct PxDevice
     on_loop_readLine_reset();
 
     // FIXME: remove the following from 'production' build.
+    //uartConfig_->write("*CLS");
 #if 0
     // Note: the following is to simulate incomplete command sent before reboot
     //write_cmd(CMD_IDENTIFY);
@@ -176,14 +177,16 @@ struct PxDevice
         // TODO: Retry identification after some delay.
 
         state = State(unsigned(state)+1); // ++state;
-      } else if (timeout_time_ms <= now_ms) {
-        PxLOG("%s %s id='%s'", "identify", "timeout", buffer_);
-
-        // TODO: Mark device as unusable.
-        // TODO: Retry identification after some delay.
-
-        state = State(unsigned(state)+1); // ++state;
       }
+    } else if (timeout_time_ms <= now_ms) {
+      PxLOG("%s %s id='%s'", "identify", "timeout", buffer_);
+
+      // TODO: Mark device as unusable.
+      // TODO: Retry identification after some delay.
+
+      //state = State::identify;
+      //state = State::init;
+      state = State(unsigned(state)+1); // ++state;
     }
   }
 

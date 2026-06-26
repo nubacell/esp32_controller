@@ -144,6 +144,14 @@ struct UartConfig {
     ucLOG(". baud=%u", baud);
   }
 
+  uint32_t baudRate() const {
+    return hs->baudRate();
+  }
+
+  void baudRate(uint32_t baud) const {
+    hs->updateBaudRate(baud);
+  }
+
   size_t availableForRead() const {
     return hs->available();
   }
@@ -312,100 +320,147 @@ struct UartDevice
 // u2_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
 // u2_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
 // u2_lf *IDN?
+// u2_lfcr *IDN?
+// u2_cr *IDN?
+// u2_crlf *IDN?
+// u2_lf *CLS?
 
-  //static
-  void ux_hex(unsigned n, const char * args)
-  {
-    const UartConfig * uartConfig0 = xx_uartConfigs[0];
-    const UartConfig * uartConfig = xx_uartConfigs[n];
-    for (;;) {
-      while (' ' == *args) { ++args; }
-      if (!*args) { break; }
-      char * endptr = NULL;
-      uint8_t xx = strtoul(args, &endptr, 0);
-      LOG(". xx='0x%02X'", xx);
+//static
+void ux_hex(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig0 = xx_uartConfigs[0];
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  for (;;) {
+    while (' ' == *args) { ++args; }
+    if (!*args) { break; }
+    char * endptr = NULL;
+    uint8_t xx = strtoul(args, &endptr, 0);
+    LOG(". xx='0x%02X'", xx);
 
-      uartConfig0->write('"');
-      uartConfig0->write(xx);
-      uartConfig0->write('"');
-      uartConfig0->write('\r');
-      uartConfig0->write('\n');
+    uartConfig0->write('"');
+    uartConfig0->write(xx);
+    uartConfig0->write('"');
+    uartConfig0->write('\r');
+    uartConfig0->write('\n');
 
-      uartConfig->write(xx);
-      args = endptr;
-    }
+    uartConfig->write(xx);
+    args = endptr;
   }
+}
 
-  //static
-  void ux_cr(unsigned n, const char * args)
-  {
-    const UartConfig * uartConfig = xx_uartConfigs[n];
-    uartConfig->write(args);
-    uartConfig->write('\r');
+//static
+void ux_cr(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\r');
+}
+
+void ux_crlf(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\r');
+  uartConfig->write('\n');
+}
+
+//static
+void ux_lf(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\n');
+}
+
+void ux_lfcr(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\n');
+  uartConfig->write('\r');
+}
+
+void u1_hex(const char * args) { ux_hex(1, args); }
+void u2_hex(const char * args) { ux_hex(2, args); }
+void u1_cr(const char * args) { ux_cr(1, args); }
+void u2_cr(const char * args) { ux_cr(2, args); }
+void u1_crlf(const char * args) { ux_crlf(1, args); }
+void u2_crlf(const char * args) { ux_crlf(2, args); }
+void u1_lf(const char * args) { ux_lf(1, args); }
+void u2_lf(const char * args) { ux_lf(2, args); }
+void u1_lfcr(const char * args) { ux_lfcr(1, args); }
+void u2_lfcr(const char * args) { ux_lfcr(2, args); }
+
+void ux_baud(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+
+  char * endptr = NULL;
+  uint32_t baudrate = strtoul(args, &endptr, 0);
+  if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
   }
+  LOG("setting baudrate=%u", baudrate);
+  uartConfig->baudRate(baudrate);
+  LOG("active baudrate=%u", uartConfig->baudRate());
+}
 
-  //static
-  void ux_lf(unsigned n, const char * args)
-  {
-    const UartConfig * uartConfig = xx_uartConfigs[n];
-    uartConfig->write(args);
-    uartConfig->write('\r');
-  }
+void u1_baud(const char * args) { ux_baud(1, args); }
+void u2_baud(const char * args) { ux_baud(2, args); }
 
-  void u1_hex(const char * args) { ux_hex(1, args); }
-  void u2_hex(const char * args) { ux_hex(2, args); }
-  void u1_cr(const char * args) { ux_cr(1, args); }
-  void u2_cr(const char * args) { ux_cr(2, args); }
-  void u1_lf(const char * args) { ux_lf(1, args); }
-  void u2_lf(const char * args) { ux_lf(2, args); }
+typedef void (*command_fn_t)(const char * args);
 
-  typedef void (*command_fn_t)(const char * args);
+typedef struct commands_map_s {
+  const char * command_s;
+  size_t command_len;
+  command_fn_t command_fn;
+} commands_map_t;
 
-  typedef struct commands_map_s {
-    const char * command_s;
-    size_t command_len;
-    command_fn_t command_fn;
-  } commands_map_t;
-
-  static const commands_map_t commands_map[] = {
+static const commands_map_t commands_map[] = {
 #define CMD(x) { #x, CONSTSTRLEN(#x), x, }
-    CMD(u1_hex),
-    CMD(u2_hex),
-    CMD(u1_cr),
-    CMD(u2_cr),
-    CMD(u1_lf),
-    CMD(u2_lf),
+  CMD(u1_hex),
+  CMD(u2_hex),
+  CMD(u1_cr),
+  CMD(u2_cr),
+  CMD(u1_crlf),
+  CMD(u2_crlf),
+  CMD(u1_lf),
+  CMD(u2_lf),
+  CMD(u1_lfcr),
+  CMD(u2_lfcr),
+  CMD(u1_baud),
+  CMD(u2_baud),
 #undef CMD
-  };
+};
 
-  static
-  void
-  print_commands(
-      const commands_map_t * commands_map,
-      size_t commands_count)
-  {
-    LOG("Available commands:");
-    for (unsigned i = 0; i < commands_count; ++i) {
-      LOG(". %s", commands_map[i].command_s);
+static
+void
+print_commands(
+    const commands_map_t * commands_map,
+    size_t commands_count)
+{
+  LOG("Available commands:");
+  for (unsigned i = 0; i < commands_count; ++i) {
+    LOG(". %s", commands_map[i].command_s);
+  }
+}
+
+static
+command_fn_t
+command_s_to_fn(
+    const commands_map_t * commands_map,
+    size_t commands_count,
+    const char * command_s,
+    size_t command_len)
+{
+  for (unsigned i = 0; i < commands_count; ++i) {
+    if (commands_map[i].command_len == command_len
+    && !strncmp(command_s, commands_map[i].command_s, command_len)) {
+      return commands_map[i].command_fn;
     }
   }
-
-  static
-  command_fn_t
-  command_s_to_fn(
-      const commands_map_t * commands_map,
-      size_t commands_count,
-      const char * command_s,
-      size_t command_len)
-  {
-    for (unsigned i = 0; i < commands_count; ++i) {
-      if (commands_map[i].command_len == command_len
-      && !strncmp(command_s, commands_map[i].command_s, command_len)) {
-        return commands_map[i].command_fn;
-      }
-    }
-    return NULL;
-  }
+  return NULL;
+}
 
 #define cnLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
 struct CN_Device
@@ -566,6 +621,7 @@ struct PxDevice
     on_loop_readLine_reset();
 
     // FIXME: remove the following from 'production' build.
+    //uartConfig_->write("*CLS");
 #if 0
     // Note: the following is to simulate incomplete command sent before reboot
     //write_cmd(CMD_IDENTIFY);
@@ -623,14 +679,16 @@ struct PxDevice
         // TODO: Retry identification after some delay.
 
         state = State(unsigned(state)+1); // ++state;
-      } else if (timeout_time_ms <= now_ms) {
-        PxLOG("%s %s id='%s'", "identify", "timeout", buffer_);
-
-        // TODO: Mark device as unusable.
-        // TODO: Retry identification after some delay.
-
-        state = State(unsigned(state)+1); // ++state;
       }
+    } else if (timeout_time_ms <= now_ms) {
+      PxLOG("%s %s id='%s'", "identify", "timeout", buffer_);
+
+      // TODO: Mark device as unusable.
+      // TODO: Retry identification after some delay.
+
+      //state = State::identify;
+      //state = State::init;
+      state = State(unsigned(state)+1); // ++state;
     }
   }
 
@@ -812,12 +870,14 @@ static void psDevice_commands_try()
 
 // 'TENMA 72-13210 V2.20 SN:00010724'
 // 'TENMA 72-13210 V2.50 SN:00012161'
+// 'NGI,N69204-150-400,2605300000_N26051432,V2.49'
 
 static EL_Device elDevice = {
   /*.uartConfig =*/ &el_uartConfig,
   /*.expected_id =*/
   //"TENMA 72-13210 V2.50 SN:00012161",
-  "TENMA 72-13210 V2.20 SN:00010724",
+  //"TENMA 72-13210 V2.20 SN:00010724",
+  "NGI,N69204-150-400,2605300000_N26051432,V2.49",
 };
 
 static const char * const elDevice_commands[] = {
