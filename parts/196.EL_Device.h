@@ -50,3 +50,29 @@ struct EL_Device
     get_V();
   }
 };
+
+/*
+  Constant Current
+
+  Example: Set the load to the constant current function, and the main current
+  value to 50A, and the programming command is as follows:
+
+  INPut:FUNCtion CC                       // Switch to the constant current test function
+  STATic:CC:RANGe 0                       // Set the constant current range to the high range
+  STATic:CC:HIGH:LEVel 50.0               // Set the load current to 50.0A
+  STATic:CC:HIGH:SLEWRate:RAIse 600       // Set the rise slew to 600.0A/ms
+  STATic:CC:HIGH:SLEWRate:FALL 600        // Set the fall slew to 600.0A/ms
+  INPut:STATe ON                          // Turn on the load input
+*/
+/*
+  Constant Voltage
+
+  Example: Set the load to the constant voltage function, and the main value of
+  the constant voltage to 30V. The programming command is as follows:
+
+  INPut:FUNCtion CV             // Switch to the constant voltage test function
+  STATic:CV:RANGe 0             // Set the constant current range to the high range
+  STATic:CV:RATe 0              // Set the constant voltage response speed
+  STATic:CV:HIGH:LEVel 50.0     // Set the load voltage to 50.0V
+  INPut:STATe ON                // Turn on the load input
+*/

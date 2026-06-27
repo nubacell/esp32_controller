@@ -259,9 +259,10 @@ struct UartDevice
 {
   const UartConfig * uartConfig_;
 
+  size_t buffer_used_ = 0;
   static constexpr size_t buffer_size = 64;
   byte buffer_[buffer_size];
-  size_t buffer_used_ = 0;
+  byte last_char_;
   bool eol_ = false;
   bool overflow_ = false;
 
@@ -285,16 +286,28 @@ struct UartDevice
       auto available = uartConfig_->availableForRead();
       while (available--) {
         const auto b = uartConfig_->read_byte(0);
-        if ('\n' == b || '\r' == b) {
+#if 0
+        if ('\r' == last_char_ && '\n' == b) { // CR+LF
+          last_char_ = 0; // intentionally store not '\n'
+        } else
+        if ('\n' == last_char_ && '\r' == b) { // LF+CR
+          last_char_ = 0; // intentionally store not '\r'
+        } else
+#endif
+        if ('\n' == b || '\r' == b) { // CR || LF
           eol_ = true;
+          // last_char_ will be used on next byte to detect CR+LF and LF+CR
+          last_char_ = b;
           break;
         } else
         // reserve space for trailing '\0'
         if ((buffer_used_ + 1) < sizeof(buffer_)) {
           buffer_[buffer_used_++] = b;
           buffer_[buffer_used_] = '\0';
+          last_char_ = b;
         } else {
           overflow_ = true;
+          last_char_ = b;
           break;
         }
       }
@@ -408,6 +421,12 @@ void ux_baud(unsigned n, const char * args)
 void u1_baud(const char * args) { ux_baud(1, args); }
 void u2_baud(const char * args) { ux_baud(2, args); }
 
+void command_idn(const char * args)
+{
+  (void) args;
+  LOG("NubaCell BT ESP32 v.0.0 sn:1234567890");
+}
+
 typedef void (*command_fn_t)(const char * args);
 
 typedef struct commands_map_s {
@@ -431,6 +450,9 @@ static const commands_map_t commands_map[] = {
   CMD(u1_baud),
   CMD(u2_baud),
 #undef CMD
+#define COMMAND(cmd,func) { cmd, CONSTSTRLEN(cmd), func, }
+  COMMAND("*IDN?", command_idn),
+#undef COMMAND
 };
 
 static
@@ -822,6 +844,32 @@ struct EL_Device
     get_V();
   }
 };
+
+/*
+  Constant Current
+
+  Example: Set the load to the constant current function, and the main current
+  value to 50A, and the programming command is as follows:
+
+  INPut:FUNCtion CC                       // Switch to the constant current test function
+  STATic:CC:RANGe 0                       // Set the constant current range to the high range
+  STATic:CC:HIGH:LEVel 50.0               // Set the load current to 50.0A
+  STATic:CC:HIGH:SLEWRate:RAIse 600       // Set the rise slew to 600.0A/ms
+  STATic:CC:HIGH:SLEWRate:FALL 600        // Set the fall slew to 600.0A/ms
+  INPut:STATe ON                          // Turn on the load input
+*/
+/*
+  Constant Voltage
+
+  Example: Set the load to the constant voltage function, and the main value of
+  the constant voltage to 30V. The programming command is as follows:
+
+  INPut:FUNCtion CV             // Switch to the constant voltage test function
+  STATic:CV:RANGe 0             // Set the constant current range to the high range
+  STATic:CV:RATe 0              // Set the constant voltage response speed
+  STATic:CV:HIGH:LEVel 50.0     // Set the load voltage to 50.0V
+  INPut:STATe ON                // Turn on the load input
+*/
 
 static CN_Device cnDevice = {
   /*.uartConfig =*/ &cn_uartConfig,
