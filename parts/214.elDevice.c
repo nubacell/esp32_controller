@@ -3,7 +3,7 @@
 // 'TENMA 72-13210 V2.50 SN:00012161'
 // 'NGI,N69204-150-400,2605300000_N26051432,V2.49'
 
-static EL_Device elDevice = {
+EL_Device elDevice = {
   /*.uartConfig =*/ &el_uartConfig,
   /*.expected_id =*/
   //"TENMA 72-13210 V2.50 SN:00012161",

@@ -25,23 +25,9 @@ void loop()
     report_count_s = now_s;
   }
 
-  //psDevice.identify();
-  //elDevice.identify();
-
-  //cnDevice.poll();
-  //psDevice.poll();
-  //elDevice.poll();
-
   uartDevices_on_loop(now_ms);
-  controller.on_loop(now_ms);
-
-#if 0
-  if (psDevice.state == PxDevice::State::idle
-  &&  elDevice.state == PxDevice::State::idle) {
-    LOG_FUNCTION
-    delay(15000);
-  }
-#endif
+  //controller.on_loop(now_ms);
+  test.on_loop(now_ms);
 
   ++loop_count;
 }

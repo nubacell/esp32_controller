@@ -19,7 +19,7 @@ void ux_hex(unsigned n, const char * args)
   const UartConfig * uartConfig0 = xx_uartConfigs[0];
   const UartConfig * uartConfig = xx_uartConfigs[n];
   for (;;) {
-    while (' ' == *args) { ++args; }
+    args = skip_whitespace(args);
     if (!*args) { break; }
     char * endptr = NULL;
     uint8_t xx = strtoul(args, &endptr, 0);

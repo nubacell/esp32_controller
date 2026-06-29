@@ -8,6 +8,7 @@
 #define PS_UART_TX_GPIO         17
 
 #define EL_UART_NUM             2
-#define EL_UART_BAUD            115200
+//#define EL_UART_BAUD            115200
+#define EL_UART_BAUD            38400
 #define EL_UART_RX_GPIO         26
 #define EL_UART_TX_GPIO         25

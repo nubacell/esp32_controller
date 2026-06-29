@@ -13,16 +13,22 @@ struct CN_Device
   void on_loop_on_line(const char * s)
   {
     const char * p = strchr(s, ' ');
-    size_t len = (!p) ? strlen(s) : p - s;
-    const char * args = s + len + 1;
+    size_t len;
+    const char * args;
+    if (!p) {
+      len = strlen(s);
+      args = s + len;
+    } else {
+      len = p - s;
+      args = p + 1;
+    }
     cnLOG("len=%zu args='%s'", len, args);
 
-    command_fn_t command_fn = command_s_to_fn(
-        commands_map, ARRAY_SIZE(commands_map), s, len);
+    command_fn_t command_fn = command_s_to_fn(s, len);
 
     if (!command_fn) {
       printf("There is no command '%*s'\n", (int)len, s);
-      print_commands(commands_map, ARRAY_SIZE(commands_map));
+      print_commands();
     } else {
       command_fn(args);
     }

@@ -1,12 +1,4 @@
 
-typedef void (*command_fn_t)(const char * args);
-
-typedef struct commands_map_s {
-  const char * command_s;
-  size_t command_len;
-  command_fn_t command_fn;
-} commands_map_t;
-
 static const commands_map_t commands_map[] = {
 #define CMD(x) { #x, CONSTSTRLEN(#x), x, }
   CMD(u1_hex),
@@ -25,6 +17,26 @@ static const commands_map_t commands_map[] = {
 #define COMMAND(cmd,func) { cmd, CONSTSTRLEN(cmd), func, }
   COMMAND("*IDN?", command_idn),
 #undef COMMAND
+#define COMMAND(cmd) { #cmd, CONSTSTRLEN(#cmd), cmd, }
+
+  COMMAND(el_id),
+  COMMAND(el_clear_errors),
+  //COMMAND(el_release_control),
+  COMMAND(el_function),
+  COMMAND(el_input),
+
+  COMMAND(el_cc_range),
+  COMMAND(el_cv_range),
+  COMMAND(el_cc_level),
+  COMMAND(el_cv_level),
+
+  COMMAND(profile_steps),
+  COMMAND(profile_steps_dump),
+  COMMAND(profile_step),
+
+  COMMAND(test_run),
+  COMMAND(test_abort),
+#undef COMMAND
 };
 
 static
@@ -37,6 +49,11 @@ print_commands(
   for (unsigned i = 0; i < commands_count; ++i) {
     LOG(". %s", commands_map[i].command_s);
   }
+}
+
+void print_commands()
+{
+  print_commands(commands_map, ARRAY_SIZE(commands_map));
 }
 
 static
@@ -54,4 +71,14 @@ command_s_to_fn(
     }
   }
   return NULL;
+}
+
+command_fn_t
+command_s_to_fn(
+    const char * command_s,
+    size_t command_len)
+{
+  return command_s_to_fn(
+      commands_map, ARRAY_SIZE(commands_map),
+      command_s, command_len);
 }

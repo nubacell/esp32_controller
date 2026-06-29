@@ -15,7 +15,8 @@
 #define PS_UART_TX_GPIO         17
 
 #define EL_UART_NUM             2
-#define EL_UART_BAUD            115200
+//#define EL_UART_BAUD            115200
+#define EL_UART_BAUD            38400
 #define EL_UART_RX_GPIO         26
 #define EL_UART_TX_GPIO         25
 
@@ -47,6 +48,32 @@
 static void log(const char *file, unsigned line, const char * function, const char * format, ...);
 #define LOG(format, args...) log(__FILE__, __LINE__, __FUNCTION__, format, ##args)
 
+typedef void (*command_fn_t)(const char * args);
+
+typedef struct commands_map_s {
+  const char * command_s;
+  size_t command_len;
+  command_fn_t command_fn;
+} commands_map_t;
+
+//extern
+//const commands_map_t commands_map[];
+
+void print_commands();
+
+command_fn_t
+command_s_to_fn(
+    const char * command_s,
+    size_t command_len);
+
+// TODO: Use 'enum class' instead of 'unsigned'
+
+extern const char * const el_functions[];
+const char * el_function_to_string(unsigned function);
+
+extern const char * const el_ranges[];
+const char * el_range_to_string(unsigned cc_range);
+
 static const char device_tag[] = "esp32";
 
 static const char CMD_IDENTIFY[] = "*IDN?";
@@ -59,8 +86,205 @@ struct Runnable
   }
 };
 
-struct Profile {
+const char * skip_whitespace(const char * p)
+{
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  while (' ' == *p || '\t' == *p) {
+    ++p;
+    //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  }
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  return p;
+}
+
+enum class PSState {
+  off,
+  CC,
+  CV,
 };
+const char * to_string(PSState psstate);
+
+struct PSConfig {
+  PSState state_;
+  double i_;
+  double v_;
+
+  void dump() const {
+    LOG(". . %s state='%s' I=%.3f V=%.3f", "PS", to_string(state_), i_, v_);
+  }
+};
+
+// Note: We age going to use "EL" in "CC" mode only
+
+enum class ELState {
+  off,
+  CC,
+  CV,
+};
+const char * to_string(ELState elstate);
+
+struct ELConfig {
+  ELState state_;
+  uint8_t range_;
+  double level_;
+
+  void dump() const {
+    LOG(". . %s state_=%u/'%s' range=%u/'%s' level=%.6f", "EL",
+        state_, to_string(state_), range_, el_range_to_string(range_), level_);
+  }
+
+  void apply(const char * args)
+  {
+    {
+      args = skip_whitespace(args);
+      char * endptr = NULL;
+      state_ = (ELState) strtoul(args, &endptr, 0);
+      if (!endptr || !*endptr) { return; }
+      args = endptr;
+    }
+    {
+      args = skip_whitespace(args);
+      char * endptr = NULL;
+      range_ = strtoul(args, &endptr, 0);
+      if (!endptr || !*endptr) { return; }
+      args = endptr;
+    }
+    {
+      args = skip_whitespace(args);
+      char * endptr = NULL;
+      level_ = strtod(args, &endptr);
+      if (!endptr || !*endptr) { return; }
+      args = endptr;
+    }
+  }
+};
+
+struct ProfileStep {
+  uint32_t substeps_count_ = 0;
+  uint32_t measure_period_ms_;
+  //PSConfig psconfig_;
+  ELConfig elconfig_;
+
+  void dump() const {
+    LOG(". this=%p substeps_count=%u measure_period_ms=%u",
+        this, substeps_count_, measure_period_ms_);
+    //psconfig_.dump();
+    elconfig_.dump();
+  }
+
+  void apply(const char * args)
+  {
+    {
+      args = skip_whitespace(args);
+      char * endptr = NULL;
+      substeps_count_ = strtoul(args, &endptr, 0);
+      if (!endptr || !*endptr) { return; }
+      args = endptr;
+    }
+    {
+      args = skip_whitespace(args);
+      char * endptr = NULL;
+      measure_period_ms_ = strtoul(args, &endptr, 0);
+      if (!endptr || !*endptr) { return; }
+      args = endptr;
+    }
+    elconfig_.apply(args);
+  }
+};
+
+constexpr uint32_t profile_steps_count_max = 100;
+static ProfileStep profileSteps_[profile_steps_count_max];
+
+struct Profile {
+  uint32_t steps_count_ = 0;
+
+  void dump() const {
+    LOG("Profile: steps_count=%u", steps_count_);
+  }
+
+  void dump_steps() const {
+    for (uint32_t i = 0; i < steps_count_; ++i) {
+      ProfileStep * step = &profileSteps_[i];
+      step->dump();
+    }
+  }
+
+  void steps_count(uint32_t new_steps_count) {
+    if (new_steps_count > profile_steps_count_max) {
+      LOG("new_steps_count=%u > profile_steps_count_max=%u", new_steps_count, profile_steps_count_max);
+    } else {
+      steps_count_ = new_steps_count;
+    }
+  }
+};
+
+Profile profile;
+
+const char * to_string(PSState psstate) {
+  switch (psstate) {
+#define CASE_RETURN(x) case PSState::x: return #x;
+    CASE_RETURN(off);
+    CASE_RETURN(CC);
+    CASE_RETURN(CV);
+#undef CASE_RETURN
+    default: return "?";
+  }
+}
+
+const char * to_string(ELState elstate) {
+  switch (elstate) {
+#define CASE_RETURN(x) case ELState::x: return #x;
+    CASE_RETURN(off);
+    CASE_RETURN(CC);
+    CASE_RETURN(CV);
+#undef CASE_RETURN
+    default: return "?";
+  }
+}
+
+void profile_steps(const char * args)
+{
+  //LOG("args=%p", args);
+  args = skip_whitespace(args);
+  //LOG("args=%p", args);
+  if (*args) {
+    char * endptr = NULL;
+    uint32_t new_steps_count = strtoul(args, &endptr, 0);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    LOG("new_steps_count=%u", new_steps_count);
+    profile.steps_count(new_steps_count);
+  }
+  LOG("profile_steps=%u", profile.steps_count_);
+}
+
+void profile_steps_dump(const char * args)
+{
+  (void) args;
+  profile.dump_steps();
+}
+
+void profile_step(const char * args)
+{
+  args = skip_whitespace(args);
+  if (!*args) {
+    LOG("format: step substeps_count period_ms EL_state EL_range EL_level");
+  } else {
+    char * endptr = NULL;
+    unsigned step = strtoul(args, &endptr, 0);
+
+    if (step >= profile.steps_count_) {
+      LOG("ERROR: step=%u >= profile.steps_count=%u", step, profile.steps_count_);
+    } else {
+      ProfileStep * profileStep = &profileSteps_[step];
+      if (endptr && *endptr) {
+        profileStep->apply(endptr);
+      }
+      profileStep->dump();
+    }
+  }
+}
 
 struct Controller
   : Runnable
@@ -286,7 +510,7 @@ struct UartDevice
       auto available = uartConfig_->availableForRead();
       while (available--) {
         const auto b = uartConfig_->read_byte(0);
-#if 0
+#if 1
         if ('\r' == last_char_ && '\n' == b) { // CR+LF
           last_char_ = 0; // intentionally store not '\n'
         } else
@@ -324,166 +548,6 @@ struct UartDevice
   }
 };
 
-// u1_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
-// u1_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
-// u1_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
-// u1_lf *IDN?
-
-// u2_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
-// u2_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
-// u2_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
-// u2_lf *IDN?
-// u2_lfcr *IDN?
-// u2_cr *IDN?
-// u2_crlf *IDN?
-// u2_lf *CLS?
-
-//static
-void ux_hex(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig0 = xx_uartConfigs[0];
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  for (;;) {
-    while (' ' == *args) { ++args; }
-    if (!*args) { break; }
-    char * endptr = NULL;
-    uint8_t xx = strtoul(args, &endptr, 0);
-    LOG(". xx='0x%02X'", xx);
-
-    uartConfig0->write('"');
-    uartConfig0->write(xx);
-    uartConfig0->write('"');
-    uartConfig0->write('\r');
-    uartConfig0->write('\n');
-
-    uartConfig->write(xx);
-    args = endptr;
-  }
-}
-
-//static
-void ux_cr(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\r');
-}
-
-void ux_crlf(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\r');
-  uartConfig->write('\n');
-}
-
-//static
-void ux_lf(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\n');
-}
-
-void ux_lfcr(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\n');
-  uartConfig->write('\r');
-}
-
-void u1_hex(const char * args) { ux_hex(1, args); }
-void u2_hex(const char * args) { ux_hex(2, args); }
-void u1_cr(const char * args) { ux_cr(1, args); }
-void u2_cr(const char * args) { ux_cr(2, args); }
-void u1_crlf(const char * args) { ux_crlf(1, args); }
-void u2_crlf(const char * args) { ux_crlf(2, args); }
-void u1_lf(const char * args) { ux_lf(1, args); }
-void u2_lf(const char * args) { ux_lf(2, args); }
-void u1_lfcr(const char * args) { ux_lfcr(1, args); }
-void u2_lfcr(const char * args) { ux_lfcr(2, args); }
-
-void ux_baud(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-
-  char * endptr = NULL;
-  uint32_t baudrate = strtoul(args, &endptr, 0);
-  if (endptr && *endptr) {
-    LOG("ignoring '%s'", endptr);
-  }
-  LOG("setting baudrate=%u", baudrate);
-  uartConfig->baudRate(baudrate);
-  LOG("active baudrate=%u", uartConfig->baudRate());
-}
-
-void u1_baud(const char * args) { ux_baud(1, args); }
-void u2_baud(const char * args) { ux_baud(2, args); }
-
-void command_idn(const char * args)
-{
-  (void) args;
-  LOG("NubaCell BT ESP32 v.0.0 sn:1234567890");
-}
-
-typedef void (*command_fn_t)(const char * args);
-
-typedef struct commands_map_s {
-  const char * command_s;
-  size_t command_len;
-  command_fn_t command_fn;
-} commands_map_t;
-
-static const commands_map_t commands_map[] = {
-#define CMD(x) { #x, CONSTSTRLEN(#x), x, }
-  CMD(u1_hex),
-  CMD(u2_hex),
-  CMD(u1_cr),
-  CMD(u2_cr),
-  CMD(u1_crlf),
-  CMD(u2_crlf),
-  CMD(u1_lf),
-  CMD(u2_lf),
-  CMD(u1_lfcr),
-  CMD(u2_lfcr),
-  CMD(u1_baud),
-  CMD(u2_baud),
-#undef CMD
-#define COMMAND(cmd,func) { cmd, CONSTSTRLEN(cmd), func, }
-  COMMAND("*IDN?", command_idn),
-#undef COMMAND
-};
-
-static
-void
-print_commands(
-    const commands_map_t * commands_map,
-    size_t commands_count)
-{
-  LOG("Available commands:");
-  for (unsigned i = 0; i < commands_count; ++i) {
-    LOG(". %s", commands_map[i].command_s);
-  }
-}
-
-static
-command_fn_t
-command_s_to_fn(
-    const commands_map_t * commands_map,
-    size_t commands_count,
-    const char * command_s,
-    size_t command_len)
-{
-  for (unsigned i = 0; i < commands_count; ++i) {
-    if (commands_map[i].command_len == command_len
-    && !strncmp(command_s, commands_map[i].command_s, command_len)) {
-      return commands_map[i].command_fn;
-    }
-  }
-  return NULL;
-}
-
 #define cnLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
 struct CN_Device
   : UartDevice
@@ -498,16 +562,22 @@ struct CN_Device
   void on_loop_on_line(const char * s)
   {
     const char * p = strchr(s, ' ');
-    size_t len = (!p) ? strlen(s) : p - s;
-    const char * args = s + len + 1;
+    size_t len;
+    const char * args;
+    if (!p) {
+      len = strlen(s);
+      args = s + len;
+    } else {
+      len = p - s;
+      args = p + 1;
+    }
     cnLOG("len=%zu args='%s'", len, args);
 
-    command_fn_t command_fn = command_s_to_fn(
-        commands_map, ARRAY_SIZE(commands_map), s, len);
+    command_fn_t command_fn = command_s_to_fn(s, len);
 
     if (!command_fn) {
       printf("There is no command '%*s'\n", (int)len, s);
-      print_commands(commands_map, ARRAY_SIZE(commands_map));
+      print_commands();
     } else {
       command_fn(args);
     }
@@ -796,80 +866,379 @@ struct PS_Device
 struct EL_Device
   : PxDevice
 {
+  uint8_t function_;
+  uint8_t cc_range_;
+  uint8_t cv_range_;
+
   EL_Device(
       const UartConfig * uartConfig_,
       const char * const expected_id_)
     : PxDevice(uartConfig_, expected_id_)
   {}
 
-  // 30 2e 31 30 30 30 41 0a                           |0.1000A.|
-  // u2_lf :CURRent?
-  void get_I()
+  void function() const
   {
-    write_cmd(":CURRent?");
-  }
-
-  // 30 2e 31 30 30 30 56 0a                           |0.1000V.|
-  // u2_lf :VOLTage?
-  void get_V()
-  {
-    write_cmd(":VOLTage?");
-  }
-
-  // u2_lf :CURRent?
-  // u2_lf :CURRent 1A
-  // u2_lf :CURRent 30A
-  // u2_lf :CURRent 12.345A
-  void set_I(double v)
-  {
-    char cmd[sizeof(":CURRent1 9.9999A")];
-    snprintf(cmd, sizeof(cmd), ":CURRent1 %.4fA", v);
+    const char * cmd = "INPut:FUNCtion?";
+    LOG("cmd='%s'", cmd);
     write_cmd(cmd);
-
-    get_I();
   }
 
-  // u2_lf :VOLTage 1V
-  // u2_lf :VOLTage 120V
-  // u2_lf :VOLTage 1000V
-  // u2_lf :VOLTage 113.45V
-  // u2_lf :VOLTage 111.22V
-  // u2_lf :VOLTage 12.321V
-  void set_V(double v)
+  void function_xx(unsigned v)
   {
-    char cmd[sizeof(":VOLTage1:9.9999V")];
-    snprintf(cmd, sizeof(cmd), ":VOLTage1 %.4fV", v);
+    char cmd[sizeof("INPut:FUNCtion XX")];
+    snprintf(cmd, sizeof(cmd), "INPut:FUNCtion %s", el_function_to_string(v));
+    LOG("cmd='%s'", cmd);
     write_cmd(cmd);
+    function_ = 0;
+  }
 
-    get_V();
+  void function_CC()
+  {
+    function_xx(0);
+  }
+
+  void function_CV()
+  {
+    function_xx(1);
+  }
+
+  /*
+    Constant Current
+
+    Example: Set the load to the constant current function, and the main current
+    value to 50A, and the programming command is as follows:
+
+    INPut:FUNCtion CC                       // Switch to the constant current test function
+    STATic:CC:RANGe 0                       // Set the constant current range to the high range
+    STATic:CC:HIGH:LEVel 50.0               // Set the load current to 50.0A
+    STATic:CC:HIGH:SLEWRate:RAIse 600       // Set the rise slew to 600.0A/ms
+    STATic:CC:HIGH:SLEWRate:FALL 600        // Set the fall slew to 600.0A/ms
+    INPut:STATe ON                          // Turn on the load input
+  */
+  // 0-high range, 1-low range, 2-medium range
+  void cc_range() const
+  {
+    const char * cmd = "STATic:CC:RANGe?";
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+  void cc_range(unsigned v)
+  {
+    char cmd[sizeof("STATic:CC:RANGe X")];
+    snprintf(cmd, sizeof(cmd), "STATic:CC:RANGe %u", v);
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+    cc_range_ = v;
+  }
+
+  void cc_xx_level(unsigned range) const
+  {
+    char cmd[sizeof("STATic:CC:xxxx:LEVel?")];
+    snprintf(cmd, sizeof(cmd), "STATic:CC:%s:LEVel?", el_range_to_string(range));
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+  void cc_level() const
+  {
+    cc_xx_level(cc_range_);
+  }
+
+  /*
+    u2_lf STATic:CC:HIGH:LEVel 1.12345 OK
+    u2_lf STATic:CC:HIGH:LEVel 12.1234 OK
+    u2_lf STATic:CC:HIGH:LEVel 123.123 OK
+    u2_lf STATic:CC:HIGH:LEVel 1234.12 NG
+  */
+  void cc_xx_level(unsigned range, double v) const
+  {
+    char cmd[sizeof("STATic:CC:xxxx:LEVel 123.123")];
+    snprintf(cmd, sizeof(cmd), "STATic:CC:%s:LEVel %.5f", el_range_to_string(range), v);
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+  void cc_level(double v) const
+  {
+    cc_xx_level(cc_range_, v);
+  }
+
+  /*
+    Constant Voltage
+
+    Example: Set the load to the constant voltage function, and the main value of
+    the constant voltage to 30V. The programming command is as follows:
+
+    INPut:FUNCtion CV             // Switch to the constant voltage test function
+    STATic:CV:RANGe 0             // Set the constant current range to the high range
+    STATic:CV:RATe 0              // Set the constant voltage response speed
+    STATic:CV:HIGH:LEVel 50.0     // Set the load voltage to 50.0V
+    INPut:STATe ON                // Turn on the load input
+  */
+  // 0-high range, 1-low range, 2-medium range
+  void cv_range() const
+  {
+    const char * cmd = "STATic:CV:RANGe?";
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+  void cv_range(unsigned v)
+  {
+    char cmd[sizeof("STATic:CV:RANGe X")];
+    snprintf(cmd, sizeof(cmd), "STATic:CV:RANGe %u", v);
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+    cv_range_ = v;
+  }
+
+  void cv_xx_level(unsigned range) const
+  {
+    char cmd[sizeof("STATic:CV:xxxx:LEVel?")];
+    snprintf(cmd, sizeof(cmd), "STATic:CV:%s:LEVel?", el_range_to_string(range));
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+  void cv_level() const
+  {
+    cv_xx_level(cv_range_);
+  }
+
+/*
+    u2_lf STATic:CV:HIGH:LEVel?
+    u2_lf STATic:CV:HIGH:LEVel 1.13245 OK
+    u2_lf STATic:CV:HIGH:LEVel 12.1324 OK
+    u2_lf STATic:CV:HIGH:LEVel 123.123 OK
+    u2_lf STATic:CV:HIGH:LEVel 1234.13 NG
+*/
+  void cv_xx_level(unsigned range, double v) const
+  {
+    char cmd[sizeof("STATic:CV:xxxx:LEVel 123.123")];
+    snprintf(cmd, sizeof(cmd), "STATic:CV:%s:LEVel %.5f", el_range_to_string(range), v);
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+  void cv_level(double v) const
+  {
+    cv_xx_level(cv_range_, v);
+  }
+
+  void get_input() const
+  {
+    const char * cmd = "INPut:STATe?";
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+  void set_input_ON() const
+  {
+    const char * cmd = "INPut:STATe ON";
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+  void set_input_OFF() const
+  {
+    const char * cmd = "INPut:STATe OFF";
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+#if 0
+  // SYST:LOC // Exit remote control mode and return to local control mode.
+  void release_control() const
+  {
+    //const char * cmd = "SYST:LOC";
+    const char * cmd = "SYSTem:LOCal";
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+#endif
+
+  void clear_errors() const
+  {
+    const char * cmd = "*CLS";
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
+
+  void id() const
+  {
+    const char * cmd = CMD_IDENTIFY;
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
   }
 };
 
-/*
-  Constant Current
+extern EL_Device elDevice;
 
-  Example: Set the load to the constant current function, and the main current
-  value to 50A, and the programming command is as follows:
+struct Test
+  : Runnable
+{
+  unsigned step_;
+  unsigned sub_step_;
+  //uint32_t start_time_ms_;
+  uint32_t event_time_ms_;
 
-  INPut:FUNCtion CC                       // Switch to the constant current test function
-  STATic:CC:RANGe 0                       // Set the constant current range to the high range
-  STATic:CC:HIGH:LEVel 50.0               // Set the load current to 50.0A
-  STATic:CC:HIGH:SLEWRate:RAIse 600       // Set the rise slew to 600.0A/ms
-  STATic:CC:HIGH:SLEWRate:FALL 600        // Set the fall slew to 600.0A/ms
-  INPut:STATe ON                          // Turn on the load input
-*/
-/*
-  Constant Voltage
+  bool run_;
+  bool abort_;
 
-  Example: Set the load to the constant voltage function, and the main value of
-  the constant voltage to 30V. The programming command is as follows:
+  enum class State {
+    init,
+    idle,
+    running,
+  };
+  static const char * to_string(State state);
 
-  INPut:FUNCtion CV             // Switch to the constant voltage test function
-  STATic:CV:RANGe 0             // Set the constant current range to the high range
-  STATic:CV:RATe 0              // Set the constant voltage response speed
-  STATic:CV:HIGH:LEVel 50.0     // Set the load voltage to 50.0V
-  INPut:STATe ON                // Turn on the load input
-*/
+  void state(State new_state)
+  {
+    const auto old_state_name = to_string(state_);
+    state_ = new_state;
+    const auto new_state_name = to_string(state_);
+    LOG("'%s' -> '%s'", old_state_name, new_state_name);
+  }
+
+  State state_ = State::init;
+
+  void on_state_init(uint32_t now_ms)
+  {
+    state(State::idle);
+  }
+
+
+  void change_PS_EL_configs(const ProfileStep * profileStep)
+  {
+    if (ELState::off == profileStep->elconfig_.state_) {
+      LOG("deactivatin EL");
+      elDevice.set_input_OFF();
+    } else if (ELState::CC == profileStep->elconfig_.state_) {
+      LOG("changing EL config");
+      elDevice.cc_range(profileStep->elconfig_.range_);
+      elDevice.cc_level(profileStep->elconfig_.level_);
+      elDevice.cc_level();
+      elDevice.set_input_ON();
+    } else {
+      LOG("ERROR: Unexpected EL state");
+    }
+  }
+
+  void deactivate_PS_EL()
+  {
+    LOG("deactivating EL");
+    elDevice.set_input_OFF();
+  }
+
+
+  void on_state_idle(uint32_t now_ms)
+  {
+    if (run_) {
+      run_ = false;
+      abort_ = false;
+
+      if (!profile.steps_count_) {
+        LOG("ERROR: profile is empty");
+        state(State::idle);
+      } else {
+        state(State::running);
+
+        step_ = 0;
+        sub_step_ = 0;
+
+        const ProfileStep * profileStep = &profileSteps_[step_];
+
+        //start_time_ms_ = now_ms;
+        event_time_ms_ = now_ms;
+
+        // Change PS and EL configs.
+        change_PS_EL_configs(profileStep);
+
+        // if !substeps_count_ || measure_period_ms_ then next 'on_event' will
+        // be executed on next 'on_loop'.
+        if (profileStep->substeps_count_
+        && profileStep->measure_period_ms_) {
+          event_time_ms_ += profileStep->measure_period_ms_;
+        }
+      }
+    }
+  }
+
+  void on_event(uint32_t now_ms)
+  {
+    LOG("--- sub_step_=%u finished -- do measurements...", sub_step_);
+
+    const ProfileStep * profileStep = &profileSteps_[step_];
+    ++sub_step_;
+    if (sub_step_ < profileStep->substeps_count_) {
+      event_time_ms_ += profileStep->measure_period_ms_;
+    } else {
+      LOG("--- step_=%u finished -- change PS and EL configs...", step_);
+
+      ++step_;
+      if (step_ < profile.steps_count_) {
+
+        profileStep = &profileSteps_[step_];
+        sub_step_ = 0;
+
+        // Change PS and EL configs.
+        change_PS_EL_configs(profileStep);
+
+        // if !substeps_count_ || measure_period_ms_ then next 'on_event' will
+        // be executed on next 'on_loop'.
+        if (profileStep->substeps_count_
+        && profileStep->measure_period_ms_) {
+          event_time_ms_ += profileStep->measure_period_ms_;
+        }
+
+      } else {
+        deactivate_PS_EL();
+        LOG("--- test finished ---");
+        // 'test' finished
+        state(State::idle);
+      }
+    }
+  }
+
+  void on_state_running(uint32_t now_ms)
+  {
+    if (abort_) {
+      abort_ = false;
+
+      deactivate_PS_EL();
+
+      state(State::idle);
+    } else
+    if (event_time_ms_ <= now_ms) {
+      on_event(now_ms);
+    }
+  }
+
+  void on_loop(uint32_t now_ms) override
+  {
+    switch (state_) {
+#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
+      CASE_CALL(init)
+      CASE_CALL(idle)
+      CASE_CALL(running)
+#undef CASE_CALL
+      default:
+        LOG("Unexpected state=%u/'%s'", state_, to_string(state_));
+        break;
+    }
+  }
+
+  void run()
+  {
+    run_ = true;
+  }
+
+  void abort()
+  {
+    abort_ = true;
+  }
+};
 
 static CN_Device cnDevice = {
   /*.uartConfig =*/ &cn_uartConfig,
@@ -920,7 +1289,7 @@ static void psDevice_commands_try()
 // 'TENMA 72-13210 V2.50 SN:00012161'
 // 'NGI,N69204-150-400,2605300000_N26051432,V2.49'
 
-static EL_Device elDevice = {
+EL_Device elDevice = {
   /*.uartConfig =*/ &el_uartConfig,
   /*.expected_id =*/
   //"TENMA 72-13210 V2.50 SN:00012161",
@@ -928,33 +1297,111 @@ static EL_Device elDevice = {
   "NGI,N69204-150-400,2605300000_N26051432,V2.49",
 };
 
-static const char * const elDevice_commands[] = {
-  ":SYSTem:BAUD?",
-  ":SYSTem:BEEP?",
-  ":SYSTem:PORT?",
-  //":SYSTem:DEVINFO?", // returns 7 lines
-  ":STATus?",
-  ":INPut?",
-  ":VOLTage?",
-  ":VOLTage:UPPer?",
-  ":VOLTage:LOWer?",
-  ":CURRent?",
-  ":CURRent:UPPer?",
-  ":CURRent:LOWer?",
-  ":MEASure:CURRent?",
-  ":MEASure:VOLTage?",
-  ":MEASure:POWer?",
-};
-static void elDevice_commands_try()
+void el_id(const char * args)
 {
-  const char * CMD_DEVINFO = ":SYSTem:DEVINFO?";
-  elDevice.command_try(CMD_DEVINFO, 7);
-    ARRAY_SIZE(elDevice_commands);
-#if 0
-  elDevice.commands_try(
-    elDevice_commands,
-    ARRAY_SIZE(elDevice_commands));
-#endif
+  (void) args;
+  elDevice.id();
+}
+
+/*
+void el_release_control(const char * args)
+{
+  (void) args;
+  elDevice.release_control();
+}
+*/
+
+void el_clear_errors(const char * args)
+{
+  elDevice.clear_errors();
+}
+
+void el_function(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    if (!strcasecmp(args, "cc")) {
+      elDevice.function_CC();
+    } else
+    if (!strcasecmp(args, "cv")) {
+      elDevice.function_CV();
+    } else {
+      LOG("function must be CC or CV");
+    }
+  }
+  elDevice.function();
+}
+
+void el_input(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    if (!strcasecmp(args, "on")) {
+      elDevice.set_input_ON();
+    } else
+    if (!strcasecmp(args, "off")) {
+      elDevice.set_input_OFF();
+    } else {
+      LOG("input must be ON or OFF");
+    }
+  }
+  elDevice.get_input();
+}
+
+void el_cc_level(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    char * endptr = NULL;
+    double v = strtod(args, &endptr);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    elDevice.cc_level(v);
+  }
+  elDevice.cc_level();
+}
+
+void el_cv_level(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    char * endptr = NULL;
+    double v = strtod(args, &endptr);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    elDevice.cv_level(v);
+  }
+  elDevice.cv_level();
+}
+
+void el_cc_range(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    char * endptr = NULL;
+    unsigned v = strtoul(args, &endptr, 0);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    elDevice.cc_range(v);
+  }
+  elDevice.cc_range();
+}
+
+void el_cv_range(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    char * endptr = NULL;
+    unsigned v = strtoul(args, &endptr, 0);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    elDevice.cv_range(v);
+  }
+  elDevice.cv_range();
 }
 static Runnable * const uartDevices[] = {
   &cnDevice,
@@ -969,6 +1416,218 @@ static void uartDevices_on_loop(int32_t now_ms) {
 }
 
 Controller controller;
+
+Test test;
+
+const char * Test::to_string(State state)
+{
+  static const char * const state_names[] = {
+    "init",
+    "idle",
+    "running",
+  };
+  const auto i = unsigned(state);
+  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
+}
+
+void test_run(const char * args)
+{
+  (void) args;
+  test.run();
+}
+
+void test_abort(const char * args)
+{
+  (void) args;
+  test.abort();
+}
+
+// u1_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
+// u1_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
+// u1_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
+// u1_lf *IDN?
+
+// u2_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
+// u2_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
+// u2_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
+// u2_lf *IDN?
+// u2_lfcr *IDN?
+// u2_cr *IDN?
+// u2_crlf *IDN?
+// u2_lf *CLS?
+
+//static
+void ux_hex(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig0 = xx_uartConfigs[0];
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  for (;;) {
+    args = skip_whitespace(args);
+    if (!*args) { break; }
+    char * endptr = NULL;
+    uint8_t xx = strtoul(args, &endptr, 0);
+    LOG(". xx='0x%02X'", xx);
+
+    uartConfig0->write('"');
+    uartConfig0->write(xx);
+    uartConfig0->write('"');
+    uartConfig0->write('\r');
+    uartConfig0->write('\n');
+
+    uartConfig->write(xx);
+    args = endptr;
+  }
+}
+
+//static
+void ux_cr(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\r');
+}
+
+void ux_crlf(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\r');
+  uartConfig->write('\n');
+}
+
+//static
+void ux_lf(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\n');
+}
+
+void ux_lfcr(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\n');
+  uartConfig->write('\r');
+}
+
+void u1_hex(const char * args) { ux_hex(1, args); }
+void u2_hex(const char * args) { ux_hex(2, args); }
+void u1_cr(const char * args) { ux_cr(1, args); }
+void u2_cr(const char * args) { ux_cr(2, args); }
+void u1_crlf(const char * args) { ux_crlf(1, args); }
+void u2_crlf(const char * args) { ux_crlf(2, args); }
+void u1_lf(const char * args) { ux_lf(1, args); }
+void u2_lf(const char * args) { ux_lf(2, args); }
+void u1_lfcr(const char * args) { ux_lfcr(1, args); }
+void u2_lfcr(const char * args) { ux_lfcr(2, args); }
+
+void ux_baud(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+
+  char * endptr = NULL;
+  uint32_t baudrate = strtoul(args, &endptr, 0);
+  if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
+  }
+  LOG("setting baudrate=%u", baudrate);
+  uartConfig->baudRate(baudrate);
+  LOG("active baudrate=%u", uartConfig->baudRate());
+}
+
+void u1_baud(const char * args) { ux_baud(1, args); }
+void u2_baud(const char * args) { ux_baud(2, args); }
+
+void command_idn(const char * args)
+{
+  (void) args;
+  LOG("NubaCell BT ESP32 v.0.0 sn:1234567890");
+}
+
+static const commands_map_t commands_map[] = {
+#define CMD(x) { #x, CONSTSTRLEN(#x), x, }
+  CMD(u1_hex),
+  CMD(u2_hex),
+  CMD(u1_cr),
+  CMD(u2_cr),
+  CMD(u1_crlf),
+  CMD(u2_crlf),
+  CMD(u1_lf),
+  CMD(u2_lf),
+  CMD(u1_lfcr),
+  CMD(u2_lfcr),
+  CMD(u1_baud),
+  CMD(u2_baud),
+#undef CMD
+#define COMMAND(cmd,func) { cmd, CONSTSTRLEN(cmd), func, }
+  COMMAND("*IDN?", command_idn),
+#undef COMMAND
+#define COMMAND(cmd) { #cmd, CONSTSTRLEN(#cmd), cmd, }
+
+  COMMAND(el_id),
+  COMMAND(el_clear_errors),
+  //COMMAND(el_release_control),
+  COMMAND(el_function),
+  COMMAND(el_input),
+
+  COMMAND(el_cc_range),
+  COMMAND(el_cv_range),
+  COMMAND(el_cc_level),
+  COMMAND(el_cv_level),
+
+  COMMAND(profile_steps),
+  COMMAND(profile_steps_dump),
+  COMMAND(profile_step),
+
+  COMMAND(test_run),
+  COMMAND(test_abort),
+#undef COMMAND
+};
+
+static
+void
+print_commands(
+    const commands_map_t * commands_map,
+    size_t commands_count)
+{
+  LOG("Available commands:");
+  for (unsigned i = 0; i < commands_count; ++i) {
+    LOG(". %s", commands_map[i].command_s);
+  }
+}
+
+void print_commands()
+{
+  print_commands(commands_map, ARRAY_SIZE(commands_map));
+}
+
+static
+command_fn_t
+command_s_to_fn(
+    const commands_map_t * commands_map,
+    size_t commands_count,
+    const char * command_s,
+    size_t command_len)
+{
+  for (unsigned i = 0; i < commands_count; ++i) {
+    if (commands_map[i].command_len == command_len
+    && !strncmp(command_s, commands_map[i].command_s, command_len)) {
+      return commands_map[i].command_fn;
+    }
+  }
+  return NULL;
+}
+
+command_fn_t
+command_s_to_fn(
+    const char * command_s,
+    size_t command_len)
+{
+  return command_s_to_fn(
+      commands_map, ARRAY_SIZE(commands_map),
+      command_s, command_len);
+}
 
 void hex_dump(const uint8_t * data, size_t size)
 {
@@ -1092,23 +1751,26 @@ void loop()
     report_count_s = now_s;
   }
 
-  //psDevice.identify();
-  //elDevice.identify();
-
-  //cnDevice.poll();
-  //psDevice.poll();
-  //elDevice.poll();
-
   uartDevices_on_loop(now_ms);
-  controller.on_loop(now_ms);
-
-#if 0
-  if (psDevice.state == PxDevice::State::idle
-  &&  elDevice.state == PxDevice::State::idle) {
-    LOG_FUNCTION
-    delay(15000);
-  }
-#endif
+  //controller.on_loop(now_ms);
+  test.on_loop(now_ms);
 
   ++loop_count;
+}
+
+// TODO: Use 'enum class' instead of 'unsigned'
+
+const char * const el_functions[] = { "CC", "CV", };
+
+const char * el_function_to_string(unsigned function)
+{
+  return el_functions[function];
+}
+
+
+const char * const el_ranges[] = { "HIGH", "LOW", "MID", };
+
+const char * el_range_to_string(unsigned cc_range)
+{
+  return el_ranges[cc_range];
 }
