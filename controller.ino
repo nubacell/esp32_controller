@@ -344,6 +344,7 @@ extern unsigned spi_post_trans_cb_count_;
 void spi_report_stats();
 
 //#define DUMP_GPIO_PINS_CONFIG
+//#define SPI_TRANS_TIME_STATS
 
 const uint8_t spi_ms_pins[SPI_SENSOR_DEVICES_COUNT] = {
   SPI_MS_0_GPIO,
@@ -356,6 +357,7 @@ const uint8_t spi_ms_pins[SPI_SENSOR_DEVICES_COUNT] = {
   SPI_MS_7_GPIO,
 };
 
+// FIXME: Eliminate 'spi_tx_buffers'
 byte spi_tx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
 byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
 uint16_t spi_rx_bits[SPI_SENSOR_DEVICES_COUNT];
@@ -378,8 +380,6 @@ const spi_bus_config_t spi_bus_config = {
   .data6_io_num = -1,
   .data7_io_num = -1,
 
-  // Note: One of the following settings results in 'panic':
-  // Guru Meditation Error: Core  1 panic'ed (LoadProhibited). Exception was unhandled.
 #if 0
   // Output data IO default level when no transaction
   //.data_io_default_level = true,
@@ -388,7 +388,14 @@ const spi_bus_config_t spi_bus_config = {
 #endif
 };
 
-#define SPI_QUEUE_SIZE SPI_SENSOR_DEVICES_COUNT
+/*
+    Currently only one transaction is used.
+
+    Multiple transactions submitted to driver can improve performance but will
+    complicate cleanup in case of timeout.
+*/
+//#define SPI_QUEUE_SIZE SPI_SENSOR_DEVICES_COUNT
+#define SPI_QUEUE_SIZE 1
 
 /*
     SPI mode is combination of CPOL and CPHA:
@@ -533,20 +540,20 @@ void spi_setup()
 
 /*
     Warning: 'spi_slave_queue_trans()' does not make copy of
-    'spi_slave_transaction_t'. Instead it keeps it's address and uses that
-    address to store number of actually transferred bits into 'trans_len'
-    field. It means that memory occupied by 'spi_slave_transaction_t' must be
-    preserved until the end of transmission which is notified by
-    'post_trans_cb' callback.
+    'spi_slave_transaction_t'. Instead it keeps it's address and uses it to
+    store number of actually transferred bits into 'trans_len' field. It means
+    that memory occupied by 'spi_slave_transaction_t' must be preserved until
+    the end of transmission which is notified by 'post_trans_cb' callback.
 */
 static spi_slave_transaction_t spi_transaction_;
+
 bool spi_transfer_start(uint8_t spi_sensor_n)
 {
   spi_transfer_finished_ = false;
 
   spi_transaction_ = spi_slave_transaction_t {
     //.flags = 0,
-    .length = SPI_DATA_SIZE * 8 + 6,
+    .length = SPI_DATA_SIZE * 8, // number of bits not bytes
     // trans_len -- used by driver to return actual number of received bits
     //.trans_len = 0,
     .tx_buffer = &spi_tx_buffers[spi_sensor_n][0],
@@ -559,10 +566,6 @@ bool spi_transfer_start(uint8_t spi_sensor_n)
     LOG("ERROR: %s() failure", "spi_slave_queue_trans");
     return false;
   }
-#if 0
-  LOG(". spi_post_setup_cb_count_=%u spi_post_trans_cb_count_=%u",
-      spi_post_setup_cb_count_, spi_post_trans_cb_count_);
-#endif
   return true;
 }
 
@@ -580,14 +583,16 @@ bool spi_rx_bits_valid()
 {
   for (unsigned i = 0; i < ARRAY_SIZE(spi_rx_bits); ++i) {
     if (spi_rx_bits[i] < SPI_RX_BITS_MIN) {
-      LOG(" . spi_rx_bits[%u]=%u SPI_RX_BITS_MIN=%u", i, spi_rx_bits[i], SPI_RX_BITS_MIN);
+      //LOG(" . spi_rx_bits[%u]=%u SPI_RX_BITS_MIN=%u", i, spi_rx_bits[i], SPI_RX_BITS_MIN);
       return false;
     }
   }
   return true;
 }
 
+
 SPI_Device spiDevice;
+
 
 const char * SPI_Device::to_string(State state)
 {
@@ -647,6 +652,12 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
   }
 }
 
+/*
+    'spi_transfer_finished_' marks end of single transfer.
+
+    TODO: Implement some state for multiple transfers to integrate them with
+    'Test' running.
+*/
 void SPI_Device::on_state_running(uint32_t now_ms)
 {
   if (spi_transfer_finished_) {
@@ -658,7 +669,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
     if (++spi_sensor_n_ < SPI_SENSOR_DEVICES_COUNT) {
       //LOG("spi_sensor_n_=%u < SPI_SENSOR_DEVICES_COUNT=%u", spi_sensor_n_, SPI_SENSOR_DEVICES_COUNT);
       if (!spi_transfer_start(spi_sensor_n_)) {
-        LOG("");
+        //LOG("");
         state(State::idle);
       }
     } else {
