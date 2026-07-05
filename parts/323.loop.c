@@ -1,6 +1,14 @@
 
 void loop()
 {
+  LOG("sp=%p", cpu_sp_get());
+  //STACK_MARKER(256);
+  //LOG("uxTaskGetStackHighWaterMark()=%u", uxTaskGetStackHighWaterMark(NULL));
+  //stack_recurse(64);
+  //STACK_DUMP();
+  //STACK_DUMP_RECURSIVE(8);
+  for (;;) {
+
   //LOG_FUNCTION
 
   static uint32_t loop_count = 0;
@@ -13,6 +21,7 @@ void loop()
   if (now_s - report_config_s >= 5*60) {
     report_config();
     report_config_s = now_s;
+    LOG("uxTaskGetStackHighWaterMark()=%u", uxTaskGetStackHighWaterMark(NULL));
   }
 #endif
 
@@ -21,13 +30,15 @@ void loop()
     Serial.print(device_tag);
     Serial.print(" now_ms="); Serial.print(now_ms);
     Serial.print(" loop_count="); Serial.println(loop_count);
+    spi_report_stats();
 
     report_count_s = now_s;
   }
 
   uartDevices_on_loop(now_ms);
-  //controller.on_loop(now_ms);
+  spiDevice.on_loop(now_ms);
   test.on_loop(now_ms);
 
   ++loop_count;
+  }
 }

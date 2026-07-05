@@ -1,13 +1,12 @@
 
 void setup()
 {
-  //serial_setup();
   xx_uartConfigs_init();
 
-  //cnDevice.init();
-  //psDevice.init();
-  //plDevice.init();
+  // move 'spi_setup()' to 'spiDevice::on_state_init()'
+  //spi_setup();
 
-  //psDevice_commands_try();
-  //plDevice_commands_try();
+  report_config();
+
+  //STACK_MARKER(256);
 }

@@ -4,6 +4,9 @@
 #include "esp_err.h" // ESP_ERROR_CHECK()
 #include "esp_log.h" // ESP_LOG*()
 
+#include "driver/spi_slave.h"
+#include "esp_private/spi_slave_internal.h" // spi_slave_queue_reset()
+
 //#define COLLECT_MIN_MAX
 
 #define CN_UART_NUM             0
@@ -45,8 +48,39 @@
 #define MAKE_STRING_HELPER1(s) MAKE_STRING_HELPER2(s)
 #define MAKE_STRING(s) MAKE_STRING_HELPER1(s)
 
+uint32_t cpu_sp_get();
+
+void hex_dump(const uint8_t * data, size_t size);
+
 static void log(const char *file, unsigned line, const char * function, const char * format, ...);
-#define LOG(format, args...) log(__FILE__, __LINE__, __FUNCTION__, format, ##args)
+//#define LOG(format, args...) log(__FILE__, __LINE__, __FUNCTION__, format, ##args)
+#define LOG(format, args...) log(__FILE__, __LINE__, __PRETTY_FUNCTION__, format, ##args)
+
+const char * skip_whitespace(const char * p);
+
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_recurse(unsigned depth);
+
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_dump(unsigned line, const char * func);
+#define STACK_DUMP() stack_dump(__LINE__, __FUNCTION__)
+
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_dump_recursive(unsigned line, const char * func, unsigned depth);
+#define STACK_DUMP_RECURSIVE(depth) stack_dump_recursive(__LINE__, __FUNCTION__, depth)
+
+__attribute__((noinline))
+void stack_marker_fill(uint32_t * addr, size_t size, uint8_t fill);
+#define STACK_MARKER(size,fill) \
+    { \
+      uint32_t stack_marker[size/sizeof(uint32_t)]; \
+      stack_marker_fill(stack_marker, sizeof(stack_marker), fill); \
+    }
+
+extern const char device_tag[];
 
 typedef void (*command_fn_t)(const char * args);
 
@@ -74,8 +108,6 @@ const char * el_function_to_string(unsigned function);
 extern const char * const el_ranges[];
 const char * el_range_to_string(unsigned cc_range);
 
-static const char device_tag[] = "esp32";
-
 static const char CMD_IDENTIFY[] = "*IDN?";
 
 struct Runnable
@@ -85,17 +117,6 @@ struct Runnable
     LOG("");
   }
 };
-
-const char * skip_whitespace(const char * p)
-{
-  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
-  while (' ' == *p || '\t' == *p) {
-    ++p;
-    //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
-  }
-  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
-  return p;
-}
 
 enum class PSState {
   off,
@@ -219,6 +240,495 @@ struct Profile {
 };
 
 Profile profile;
+
+#define SPI_GPIO_MOSI 13
+// TODO: Try to work without 'MISO'
+//#define SPI_GPIO_MISO -1
+#define SPI_GPIO_MISO 12
+#define SPI_GPIO_SCLK 14
+#define SPI_GPIO_CS   15
+
+#define SPI_DEVICE SPI2_HOST
+
+#define SPI_BUFFER_SIZE_MAX 64
+#define SPI_BUFFER_SIZE SPI_BUFFER_SIZE_MAX
+//#define SPI_BUFFER_SIZE 128
+#define SPI_DATA_SIZE 21
+
+
+#define SPI_SENSOR_DEVICES_COUNT 8
+
+// 'Master Select' (MS) is used to select one of many LGT8F devices
+#define SPI_MS_0_GPIO 22
+#define SPI_MS_1_GPIO 23
+// FIXME: Assign correct pin numbers
+#define SPI_MS_2_GPIO SPI_MS_0_GPIO
+#define SPI_MS_3_GPIO SPI_MS_1_GPIO
+#define SPI_MS_4_GPIO SPI_MS_0_GPIO
+#define SPI_MS_5_GPIO SPI_MS_0_GPIO
+#define SPI_MS_6_GPIO SPI_MS_1_GPIO
+#define SPI_MS_7_GPIO SPI_MS_1_GPIO
+
+
+extern const uint8_t spi_ms_pins[SPI_SENSOR_DEVICES_COUNT];
+extern byte spi_tx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
+extern byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
+extern uint16_t spi_rx_bits[SPI_SENSOR_DEVICES_COUNT];
+
+extern const spi_bus_config_t spi_bus_config;
+extern const spi_slave_interface_config_t spi_slave_interface_config;
+
+
+// Called after SPI is configured for 'transaction'.
+// Can be used to activate 'Master Select' (MS).
+void spi_post_setup_cb(spi_slave_transaction_t * transaction);
+
+// Called after 'transaction' is sent/received.
+// Can be used to deactivate 'Master Select' (MS).
+// Can be used to mark end of multiple transfers.
+void spi_post_trans_cb(spi_slave_transaction_t * transaction);
+
+void spi_setup();
+
+void spi_ms_pins_setup();
+void spi_pins_setuo();
+
+bool spi_transfer_start(uint8_t spi_sensor_n);
+
+void spi_rx_bits_reset();
+bool spi_rx_bits_valid();
+
+
+struct SPI_Device
+  : Runnable
+{
+  uint32_t timeout_time_ms_;
+
+  bool run_ = false;
+  bool sensors_data_valid_ = false;
+
+  enum class State {
+    init,
+    init_failed,
+    idle,
+    running,
+  };
+  State state_ = State::init;
+  static const char * to_string(State state);
+  void state(State new_state);
+
+  void on_state_init(uint32_t now_ms);
+  void on_state_init_failed(uint32_t now_ms);
+  void on_state_idle(uint32_t now_ms);
+  void on_state_running(uint32_t now_ms);
+
+  void on_loop(uint32_t now_ms) override;
+
+  void run()
+  {
+    run_ = true;
+  }
+};
+
+extern SPI_Device spiDevice;
+
+void spi_run(const char * args);
+
+
+extern unsigned spi_post_setup_cb_count_;
+extern unsigned spi_post_trans_cb_count_;
+
+
+//void my_post_setup_cb(spi_slave_transaction_t *trans);
+//void my_post_trans_cb(spi_slave_transaction_t *trans);
+void spi_report_stats();
+
+//#define DUMP_GPIO_PINS_CONFIG
+
+const uint8_t spi_ms_pins[SPI_SENSOR_DEVICES_COUNT] = {
+  SPI_MS_0_GPIO,
+  SPI_MS_1_GPIO,
+  SPI_MS_2_GPIO,
+  SPI_MS_3_GPIO,
+  SPI_MS_4_GPIO,
+  SPI_MS_5_GPIO,
+  SPI_MS_6_GPIO,
+  SPI_MS_7_GPIO,
+};
+
+byte spi_tx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
+byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
+uint16_t spi_rx_bits[SPI_SENSOR_DEVICES_COUNT];
+uint8_t spi_sensor_n_;
+
+const spi_bus_config_t spi_bus_config = {
+  .mosi_io_num = SPI_GPIO_MOSI,
+  .miso_io_num = SPI_GPIO_MISO,
+  .sclk_io_num = SPI_GPIO_SCLK,
+#if 0
+  .data2_io_num = -1,
+  .data3_io_num = -1,
+#else
+  .quadwp_io_num = -1,
+  .quadhd_io_num = -1,
+#endif
+
+  .data4_io_num = -1,
+  .data5_io_num = -1,
+  .data6_io_num = -1,
+  .data7_io_num = -1,
+
+  // Note: One of the following settings results in 'panic':
+  // Guru Meditation Error: Core  1 panic'ed (LoadProhibited). Exception was unhandled.
+#if 0
+  // Output data IO default level when no transaction
+  //.data_io_default_level = true,
+  //.max_transfer_sz = SPI_BUFFER_SIZE,
+  .isr_cpu_id = ESP_INTR_CPU_AFFINITY_AUTO,
+#endif
+};
+
+#define SPI_QUEUE_SIZE SPI_SENSOR_DEVICES_COUNT
+
+/*
+    SPI mode is combination of CPOL and CPHA:
+      0: (0, 0)
+      1: (0, 1)
+      2: (1, 0)
+      3: (1, 1)
+*/
+const spi_slave_interface_config_t spi_slave_interface_config = {
+  .spics_io_num  = SPI_GPIO_CS,
+  .flags         = SPI_SLAVE_NO_RETURN_RESULT, // suppresses results queue creation
+  .queue_size    = SPI_QUEUE_SIZE,
+  .mode          = 0,
+  .post_setup_cb = spi_post_setup_cb,
+  .post_trans_cb = spi_post_trans_cb
+};
+
+
+// 'MS' pins are 'OUTPUT' with default 'HIGH'/'inactive'
+
+#define SPI_MS_ACTIvE   LOW
+#define SPI_MS_INACTIvE HIGH
+
+void spi_ms_pins_setup()
+{
+  LOG("");
+  for (unsigned i = 0; i < ARRAY_SIZE(spi_ms_pins); ++i) {
+    const auto spi_ms_pin = spi_ms_pins[i];
+    digitalWrite(spi_ms_pin, SPI_MS_INACTIvE);
+    pinMode(spi_ms_pin, OUTPUT);
+  }
+}
+
+
+const uint8_t spi_pins[] = {
+  SPI_GPIO_MOSI,
+  SPI_GPIO_SCLK,
+  SPI_GPIO_CS,
+};
+
+// GPIO_DRIVE_CAP_0: ~5 mA
+// GPIO_DRIVE_CAP_1: ~10 mA
+// GPIO_DRIVE_CAP_2: ~20 mA -- default
+// GPIO_DRIVE_CAP_3: ~40 mA
+void spi_pins_setup()
+{
+  LOG("");
+  // MISO pin (if used) is 'OUTPUT'.
+
+  // MOSI, SCLK and CS pins are 'INPUT_PULLUP'
+  for (unsigned i = 0; i < ARRAY_SIZE(spi_pins); ++i) {
+    uint8_t spi_pin = spi_pins[i];
+    pinMode(spi_pin, INPUT_PULLUP);
+    //gpio_set_pull_mode(spi_pin, GPIO_PULLUP_ONLY);
+    //gpio_set_drive_capability(spi_pin, GPIO_DRIVE_CAP_3);
+  }
+}
+
+
+// Called after SPI is configured for 'transaction'.
+// Can be used to activate 'Master Select' (MS).
+unsigned spi_post_setup_cb_count_;
+#if defined SPI_TRANS_TIME_STATS
+uint32_t spi_post_setup_cb_us_;
+#endif
+void spi_post_setup_cb(spi_slave_transaction_t * transaction)
+{
+  ++spi_post_setup_cb_count_;
+
+#if defined SPI_TRANS_TIME_STATS
+  spi_post_setup_cb_us_ = esp_timer_get_time();
+#endif
+
+  //spi_sensor_n_ %= SPI_SENSOR_DEVICES_COUNT;
+  gpio_set_level(gpio_num_t(spi_ms_pins[spi_sensor_n_]), 0);
+  //digitalWrite(spi_ms_pins[spi_sensor_n_], SPI_MS_ACTIvE);
+}
+
+//volatile
+bool spi_transfer_finished_;
+
+// Called after 'transaction' is sent/received.
+// Can be used to deactivate 'Master Select' (MS).
+// Can be used to mark end of multiple transfers.
+unsigned spi_post_trans_cb_count_;
+#if defined SPI_TRANS_TIME_STATS
+uint32_t spi_post_trans_cb_us_;
+uint32_t spi_post_trans_cb_us_min_ = uint32_t(-1);
+uint32_t spi_post_trans_cb_us_max_;
+#endif
+void spi_post_trans_cb(spi_slave_transaction_t * transaction)
+{
+  ++spi_post_trans_cb_count_;
+
+#if defined SPI_TRANS_TIME_STATS
+  spi_post_trans_cb_us_ = esp_timer_get_time();
+  uint32_t trans_us = spi_post_trans_cb_us_ - spi_post_setup_cb_us_;
+  if (spi_post_trans_cb_us_min_ > trans_us) {
+    spi_post_trans_cb_us_min_ = trans_us;
+  }
+  if (spi_post_trans_cb_us_max_ < trans_us) {
+    spi_post_trans_cb_us_max_ = trans_us;
+  }
+#endif
+
+  //spi_sensor_n_ %= SPI_SENSOR_DEVICES_COUNT;
+  //digitalWrite(spi_ms_pins[spi_sensor_n_], SPI_MS_INACTIvE);
+  gpio_set_level(gpio_num_t(spi_ms_pins[spi_sensor_n_]), 1);
+
+  spi_rx_bits[spi_sensor_n_] = transaction->trans_len;
+
+  spi_transfer_finished_ = true;
+}
+
+
+static bool spi_init_failure = false;
+
+void spi_setup()
+{
+  LOG("");
+  spi_pins_setup();
+  spi_ms_pins_setup();
+
+  spi_init_failure = (ESP_OK != spi_slave_initialize(SPI_DEVICE,
+      &spi_bus_config, &spi_slave_interface_config, SPI_DMA_DISABLED));
+  if (spi_init_failure) {
+    LOG("ERROR: %s() failure", "spi_slave_initialize");
+  }
+  LOG("");
+
+#if defined DUMP_GPIO_PINS_CONFIG
+  gpio_dump_io_configuration(stdout,
+      (1ULL << 12)
+      | (1ULL << 13)
+      | (1ULL << 14)
+      | (1ULL << 15)
+      | (1ULL << 22)
+      | (1ULL << 23));
+#endif
+}
+
+
+/*
+    Warning: 'spi_slave_queue_trans()' does not make copy of
+    'spi_slave_transaction_t'. Instead it keeps it's address and uses that
+    address to store number of actually transferred bits into 'trans_len'
+    field. It means that memory occupied by 'spi_slave_transaction_t' must be
+    preserved until the end of transmission which is notified by
+    'post_trans_cb' callback.
+*/
+static spi_slave_transaction_t spi_transaction_;
+bool spi_transfer_start(uint8_t spi_sensor_n)
+{
+  spi_transfer_finished_ = false;
+
+  spi_transaction_ = spi_slave_transaction_t {
+    //.flags = 0,
+    .length = SPI_DATA_SIZE * 8 + 6,
+    // trans_len -- used by driver to return actual number of received bits
+    //.trans_len = 0,
+    .tx_buffer = &spi_tx_buffers[spi_sensor_n][0],
+    .rx_buffer = &spi_rx_buffers[spi_sensor_n][0],
+    // void * user // User-defined variable.
+    // Can be used to store MS for 'spi_post_setup_cb' and 'spi_post_trans_cb'.
+    //.user = NULL,
+  };
+  if (ESP_OK != spi_slave_queue_trans(SPI_DEVICE, &spi_transaction_, 0)) {
+    LOG("ERROR: %s() failure", "spi_slave_queue_trans");
+    return false;
+  }
+#if 0
+  LOG(". spi_post_setup_cb_count_=%u spi_post_trans_cb_count_=%u",
+      spi_post_setup_cb_count_, spi_post_trans_cb_count_);
+#endif
+  return true;
+}
+
+
+#define SPI_RX_BITS_MIN (SPI_DATA_SIZE * 8)
+
+void spi_rx_bits_reset()
+{
+  for (unsigned i = 0; i < ARRAY_SIZE(spi_rx_bits); ++i) {
+    spi_rx_bits[i] = 0;
+  }
+}
+
+bool spi_rx_bits_valid()
+{
+  for (unsigned i = 0; i < ARRAY_SIZE(spi_rx_bits); ++i) {
+    if (spi_rx_bits[i] < SPI_RX_BITS_MIN) {
+      LOG(" . spi_rx_bits[%u]=%u SPI_RX_BITS_MIN=%u", i, spi_rx_bits[i], SPI_RX_BITS_MIN);
+      return false;
+    }
+  }
+  return true;
+}
+
+SPI_Device spiDevice;
+
+const char * SPI_Device::to_string(State state)
+{
+  static const char * const state_names[] = {
+    "init",
+    "init_failed",
+    "idle",
+    "running",
+  };
+  const auto i = unsigned(state);
+  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
+}
+
+void SPI_Device::state(State new_state)
+{
+  const auto old_state_name = to_string(state_);
+  state_ = new_state;
+  const auto new_state_name = to_string(state_);
+  LOG("'%s' -> '%s'", old_state_name, new_state_name);
+}
+
+void SPI_Device::on_state_init(uint32_t now_ms)
+{
+  (void) now_ms;
+  spi_setup();
+  state( (spi_init_failure) ? State::init_failed : State::idle);
+}
+
+// Can be used to implement delay before init retry
+void SPI_Device::on_state_init_failed(uint32_t now_ms)
+{
+  (void) now_ms;
+}
+
+void SPI_Device::on_state_idle(uint32_t now_ms)
+{
+  (void) now_ms;
+  if (run_) {
+    run_ = false;
+
+    constexpr uint32_t spi_transfer_all_timeout_ms = 100;
+    timeout_time_ms_ = now_ms + spi_transfer_all_timeout_ms;
+
+    spi_rx_bits_reset();
+    spi_sensor_n_ = 0;
+    sensors_data_valid_ = false;
+
+    memset(spi_rx_buffers, 0, sizeof(spi_rx_buffers));
+    //memset(spi_rx_buffers, 0x5A, sizeof(spi_rx_buffers));
+    //memset(spi_rx_buffers, 'W', sizeof(spi_rx_buffers));
+
+    if (spi_transfer_start(spi_sensor_n_)) {
+      state(State::running);
+    } else {
+      state(State::idle);
+    }
+  }
+}
+
+void SPI_Device::on_state_running(uint32_t now_ms)
+{
+  if (spi_transfer_finished_) {
+    //LOG("spi_transfer_finished_");
+
+    //LOG(". spi_rx_buffers");
+    //hex_dump( (const uint8_t*)spi_rx_buffers, 32);
+
+    if (++spi_sensor_n_ < SPI_SENSOR_DEVICES_COUNT) {
+      //LOG("spi_sensor_n_=%u < SPI_SENSOR_DEVICES_COUNT=%u", spi_sensor_n_, SPI_SENSOR_DEVICES_COUNT);
+      if (!spi_transfer_start(spi_sensor_n_)) {
+        LOG("");
+        state(State::idle);
+      }
+    } else {
+      //LOG("end of sensors");
+      sensors_data_valid_ = spi_rx_bits_valid();
+      //LOG("sensors_data_valid_=%i", sensors_data_valid_);
+      state(State::idle);
+    }
+  } else
+  if (timeout_time_ms_ <= now_ms) {
+    LOG("%s %s", "spi transfer", "timeout");
+
+    // make sure MS pin of spi_sensor_n_ is inactive
+    digitalWrite(spi_ms_pins[spi_sensor_n_], SPI_MS_INACTIvE);
+
+    state(State::idle);
+  }
+}
+
+void SPI_Device::on_loop(uint32_t now_ms)
+{
+  switch (state_) {
+#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
+    CASE_CALL(init)
+    CASE_CALL(init_failed)
+    CASE_CALL(idle)
+    CASE_CALL(running)
+#undef CASE_CALL
+    default:
+      //LOG("ERROR: Unexpected state=%u", state_);
+      LOG("ERROR: Unexpected state=%u/'%s'", state_, to_string(state_));
+      break;
+  }
+}
+
+void spi_run(const char * args)
+{
+  (void) args;
+  spiDevice.run();
+}
+
+void spi_report_config()
+{
+  LOG(". %s=%u", "SPI_GPIO_MISO", SPI_GPIO_MISO);
+  LOG(". %s=%u", "SPI_GPIO_MOSI", SPI_GPIO_MOSI);
+  LOG(". %s=%u", "SPI_GPIO_SCLK", SPI_GPIO_SCLK);
+  LOG(". %s=%u", "SPI_GPIO_CS", SPI_GPIO_CS);
+  for (unsigned i = 0; i < ARRAY_SIZE(spi_ms_pins); ++i) {
+    const auto spi_ms_pin = spi_ms_pins[i];
+    LOG(". SPI_MS_%u_GPIO=%u", i, spi_ms_pin);
+  }
+  LOG(". %s=%u", "SPI_BUFFER_SIZE", SPI_BUFFER_SIZE);
+  LOG(". %s=%u", "SPI_DATA_SIZE", SPI_DATA_SIZE);
+  LOG(". %s=%u", "SPI_RX_BITS_MIN", SPI_RX_BITS_MIN);
+  LOG(". %s=%u", "sizeof(spi_rx_buffers)", sizeof(spi_rx_buffers));
+}
+
+void spi_report_stats()
+{
+  LOG(". spi_post_setup_cb_count_=%u spi_post_trans_cb_count_=%u",
+      spi_post_setup_cb_count_, spi_post_trans_cb_count_);
+#if defined SPI_TRANS_TIME_STATS
+  LOG(". spi_post_trans_cb_us_min_=%u spi_post_trans_cb_us_max_=%u",
+      spi_post_trans_cb_us_min_, spi_post_trans_cb_us_max_);
+#endif
+
+  for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
+    hex_dump(&spi_rx_buffers[i][0], SPI_DATA_SIZE);
+  }
+}
 
 const char * to_string(PSState psstate) {
   switch (psstate) {
@@ -1582,6 +2092,8 @@ static const commands_map_t commands_map[] = {
 
   COMMAND(test_run),
   COMMAND(test_abort),
+
+  COMMAND(spi_run),
 #undef COMMAND
 };
 
@@ -1629,30 +2141,6 @@ command_s_to_fn(
       command_s, command_len);
 }
 
-void hex_dump(const uint8_t * data, size_t size)
-{
-  unsigned i;
-  for (i = 0; i < size; ++i) {
-    if (0 == (i % 16)) {
-      if (i) {
-        Serial.println("");
-      }
-      Serial.print(". . ");
-      Serial.print(i/16, HEX);
-      Serial.print(":");
-    } else if (0 == (i % 4)) {
-      Serial.print(" ");
-    }
-    Serial.print(" ");
-    const uint8_t b = data[i];
-    Serial.print((b >> 4) & 0x0F, HEX);
-    Serial.print( b       & 0x0F, HEX);
-  }
-  if (i) {
-    Serial.println("");
-  }
-}
-
 static void log_write(unsigned line, const char * function, const char * s)
 {
   const auto ms = millis();
@@ -1671,25 +2159,42 @@ void log(const char *file, unsigned line, const char * function, const char * fo
   va_list argsList;
   va_start(argsList, format);
 
-  constexpr size_t buffer_size = 100;
+  constexpr size_t buffer_size = 128;
+  //static
   char buffer[buffer_size];
-  size_t output_length = vsnprintf(buffer, sizeof(buffer), format, argsList);
+  const int vsnprintf_r = vsnprintf(buffer, sizeof(buffer), format, argsList);
   log_write(line, function, buffer);
 
   va_end(argsList);
 
-  size_t needed_size = output_length + 1; // add space for terminating '\0'
-  if (buffer_size < needed_size) {
-    snprintf(buffer, sizeof(buffer),
-        "ALERT: logger buffer overflow (needed=%zu available=%zu)",
-        needed_size, sizeof(buffer));
-    log_write(__LINE__, __FUNCTION__, buffer);
+  if (vsnprintf_r < 0) {
+    const int snprintf_r = snprintf(buffer, sizeof(buffer),
+        "ALERT: '%s()' failure, errno=%i", "vsnprintf", errno);
+    if (snprintf_r < 0) {
+      log_write(__LINE__, __FUNCTION__, "ALERT: 'snprintf()' failure");
+    } else {
+      log_write(__LINE__, __FUNCTION__, buffer);
+    }
+  } else {
+    const size_t output_length = (size_t) vsnprintf_r;
+    const size_t needed_size = output_length + 1; // add space for terminating '\0'
+    if (buffer_size < needed_size) {
+      const int snprintf_r = snprintf(buffer, sizeof(buffer),
+          "ALERT: logger buffer overflow (needed=%zu available=%zu)",
+          needed_size, sizeof(buffer));
+      if (snprintf_r < 0) {
+        log_write(__LINE__, __FUNCTION__, "ALERT: 'snprintf()' failure");
+      } else {
+        log_write(__LINE__, __FUNCTION__, buffer);
+      }
+    }
   }
 }
 
 static void report_config()
 {
   Serial.print("device: '"); Serial.print(device_tag); Serial.println("'");
+  spi_report_config();
 }
 
 #if 0
@@ -1714,19 +2219,26 @@ void serial_setup()
 
 void setup()
 {
-  //serial_setup();
   xx_uartConfigs_init();
 
-  //cnDevice.init();
-  //psDevice.init();
-  //plDevice.init();
+  // move 'spi_setup()' to 'spiDevice::on_state_init()'
+  //spi_setup();
 
-  //psDevice_commands_try();
-  //plDevice_commands_try();
+  report_config();
+
+  //STACK_MARKER(256);
 }
 
 void loop()
 {
+  LOG("sp=%p", cpu_sp_get());
+  //STACK_MARKER(256);
+  //LOG("uxTaskGetStackHighWaterMark()=%u", uxTaskGetStackHighWaterMark(NULL));
+  //stack_recurse(64);
+  //STACK_DUMP();
+  //STACK_DUMP_RECURSIVE(8);
+  for (;;) {
+
   //LOG_FUNCTION
 
   static uint32_t loop_count = 0;
@@ -1739,6 +2251,7 @@ void loop()
   if (now_s - report_config_s >= 5*60) {
     report_config();
     report_config_s = now_s;
+    LOG("uxTaskGetStackHighWaterMark()=%u", uxTaskGetStackHighWaterMark(NULL));
   }
 #endif
 
@@ -1747,15 +2260,23 @@ void loop()
     Serial.print(device_tag);
     Serial.print(" now_ms="); Serial.print(now_ms);
     Serial.print(" loop_count="); Serial.println(loop_count);
+    spi_report_stats();
 
     report_count_s = now_s;
   }
 
   uartDevices_on_loop(now_ms);
-  //controller.on_loop(now_ms);
+  spiDevice.on_loop(now_ms);
   test.on_loop(now_ms);
 
   ++loop_count;
+  }
+}
+
+uint32_t cpu_sp_get()
+{
+  register uint32_t rsp asm("sp");
+  return rsp;
 }
 
 // TODO: Use 'enum class' instead of 'unsigned'
@@ -1774,3 +2295,170 @@ const char * el_range_to_string(unsigned cc_range)
 {
   return el_ranges[cc_range];
 }
+
+static char nibble_hex(uint8_t b)
+{
+  uint8_t n = b & 0x0F;
+  return (n < 10) ? '0' + n : 'A' - 10 + n;
+}
+
+static void hex_dump_byte(char * p, uint8_t b)
+{
+  p[0] = nibble_hex(b >> 4);
+  p[1] = nibble_hex(b);
+}
+
+static char make_printable(uint8_t b)
+{
+  b &= 0x7F;
+  return (b < 0x20 || b >= 0x7F) ? '.' : b;
+}
+
+void hex_dump_line(
+    char * hex_s, size_t hex_s_size,
+    char * char_s, size_t char_s_size,
+    const uint8_t * data, size_t size)
+{
+  memset(hex_s, ' ', hex_s_size - 1);
+  hex_s[hex_s_size - 1] = '\0';
+  memset(char_s, ' ', char_s_size - 1);
+  char_s[char_s_size - 1] = '\0';
+  for (unsigned gi = 0; gi < 4; ++gi) {
+    for(unsigned bi = 0; bi < 4; ++bi) {
+      unsigned di = gi * 4 + bi;
+      unsigned hex_s_i = gi * (2 + 4*2+3) + bi * (2+1);
+      unsigned char_s_i = gi * (1 + 4) + bi;
+      if (di < size) {
+        uint8_t d = data[di];
+        hex_dump_byte(&hex_s[hex_s_i], d);
+        char_s[char_s_i] = make_printable(d);
+      } else {
+        hex_s[hex_s_i  ] = '.';
+        hex_s[hex_s_i+1] = '.';
+        char_s[char_s_i] = '.';
+      }
+    }
+  }
+}
+
+// "XXXXXXXX/XXX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XXXX XXXX XXXX XXXX"
+void hex_dump(const uint8_t * data, size_t size)
+{
+  //LOG("data=%p size=%zu", data, size);
+  static
+  char s[sizeof("XXXXXXXX/XXX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XXXX XXXX XXXX XXXX")];
+  for (uint32_t offs = 0; offs < size; offs += 16) {
+    const uint8_t * addr = data + offs;
+    static
+    char hex_s[sizeof("XX XX XX XX  XX XX XX XX  XX XX XX XX  XX XX XX XX")];
+    static
+    char char_s[sizeof("XXXX XXXX XXXX XXXX")];
+    size_t left = size - offs;
+    hex_dump_line(hex_s, sizeof(hex_s), char_s, sizeof(char_s), addr, left);
+    //LOG("hex_s='%s'", hex_s);
+    //LOG("char_s='%s'", char_s);
+    snprintf(s, sizeof(s), "%08X/%03X  %s  %s", addr, offs, hex_s, char_s);
+    Serial.print(". . ");
+    Serial.println(s);
+  }
+}
+
+const char * skip_whitespace(const char * p)
+{
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  while (' ' == *p || '\t' == *p) {
+    ++p;
+    //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  }
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  return p;
+}
+
+uint32_t regs_[8];
+//__attribute__((noinline))
+__attribute__((noipa))
+void save_regs(
+    uint32_t r0,
+    uint32_t r1,
+    uint32_t r2,
+    uint32_t r3,
+    uint32_t r4,
+    uint32_t r5)
+{
+  regs_[ 0] = r0;
+  regs_[ 1] = r1;
+  regs_[ 2] = r2;
+  regs_[ 3] = r3;
+  regs_[ 4] = r4;
+  regs_[ 5] = r5;
+}
+
+unsigned stack_recurse_count_;
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_recurse(unsigned depth)
+{
+  asm volatile ("");
+  STACK_MARKER(16, '1');
+  if (depth) {
+    stack_recurse(depth - 1);
+  }
+#if 1
+  {
+    save_regs(
+        cpu_sp_get() & 0xFFFFFF00,
+        1,
+        2,
+        3,
+        4,
+        5);
+  }
+  ++stack_recurse_count_;
+#endif
+}
+
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_dump_recursive(unsigned line, const char * func, unsigned depth)
+{
+  asm volatile ("");
+  STACK_MARKER(16, '2');
+  stack_recurse(4);
+  //const void * p = &p;
+  //LOG("_ %u:%s p=%p", line, func, p);
+  //LOG("_ %u:%s sp=%p p=%p", line, func, cpu_sp_get(), p);
+  LOG("_ %u:%s sp=%p", line, func, cpu_sp_get());
+  if (depth) {
+    stack_dump_recursive(line, func, depth - 1);
+  } else {
+    stack_dump(line, func);
+  }
+  ++stack_recurse_count_;
+}
+
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_dump(unsigned line, const char * func)
+{
+  asm volatile ("");
+  STACK_MARKER(16, '3');
+  //stack_recurse(4);
+  //const void * p = &p;
+  //LOG("_ %u:%s p=%p", line, func, p);
+  //LOG("_ %u:%s sp=%p p=%p", line, func, cpu_sp_get(), p);
+  LOG("_ %u:%s sp=%p", line, func, cpu_sp_get());
+  //hex_dump((const uint8_t*)p, 256);
+  //hex_dump( ((const uint8_t*)p) - 32, 256);
+  hex_dump( ((const uint8_t*)cpu_sp_get()) - 256, 256*3);
+}
+
+__attribute__((noinline))
+void stack_marker_fill(uint32_t * addr, size_t size, uint8_t fill)
+{
+  memset(addr, fill, size);
+  if (size >= sizeof(uint32_t)) {
+    *addr = uint32_t(addr);
+  }
+}
+
+const char device_tag[] = "esp32";
