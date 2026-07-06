@@ -396,3 +396,9 @@ void spi_report_stats()
     hex_dump(&spi_rx_buffers[i][0], SPI_DATA_SIZE);
   }
 }
+
+void spi_stats(const char * args)
+{
+  (void) args;
+  spi_report_stats();
+}

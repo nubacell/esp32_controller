@@ -30,7 +30,7 @@ void loop()
     Serial.print(device_tag);
     Serial.print(" now_ms="); Serial.print(now_ms);
     Serial.print(" loop_count="); Serial.println(loop_count);
-    spi_report_stats();
+    //spi_report_stats();
 
     report_count_s = now_s;
   }

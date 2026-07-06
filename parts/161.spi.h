@@ -90,13 +90,11 @@ struct SPI_Device
 
 extern SPI_Device spiDevice;
 
-void spi_run(const char * args);
-
 
 extern unsigned spi_post_setup_cb_count_;
 extern unsigned spi_post_trans_cb_count_;
 
-
-//void my_post_setup_cb(spi_slave_transaction_t *trans);
-//void my_post_trans_cb(spi_slave_transaction_t *trans);
 void spi_report_stats();
+
+void spi_run(const char * args);
+void spi_stats(const char * args);

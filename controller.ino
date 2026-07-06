@@ -332,16 +332,14 @@ struct SPI_Device
 
 extern SPI_Device spiDevice;
 
-void spi_run(const char * args);
-
 
 extern unsigned spi_post_setup_cb_count_;
 extern unsigned spi_post_trans_cb_count_;
 
-
-//void my_post_setup_cb(spi_slave_transaction_t *trans);
-//void my_post_trans_cb(spi_slave_transaction_t *trans);
 void spi_report_stats();
+
+void spi_run(const char * args);
+void spi_stats(const char * args);
 
 //#define DUMP_GPIO_PINS_CONFIG
 //#define SPI_TRANS_TIME_STATS
@@ -739,6 +737,12 @@ void spi_report_stats()
   for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
     hex_dump(&spi_rx_buffers[i][0], SPI_DATA_SIZE);
   }
+}
+
+void spi_stats(const char * args)
+{
+  (void) args;
+  spi_report_stats();
 }
 
 const char * to_string(PSState psstate) {
@@ -2105,6 +2109,7 @@ static const commands_map_t commands_map[] = {
   COMMAND(test_abort),
 
   COMMAND(spi_run),
+  COMMAND(spi_stats),
 #undef COMMAND
 };
 
@@ -2271,7 +2276,7 @@ void loop()
     Serial.print(device_tag);
     Serial.print(" now_ms="); Serial.print(now_ms);
     Serial.print(" loop_count="); Serial.println(loop_count);
-    spi_report_stats();
+    //spi_report_stats();
 
     report_count_s = now_s;
   }
