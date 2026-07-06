@@ -44,3 +44,5 @@ struct PS_Device
     get_V();
   }
 };
+
+extern PS_Device psDevice;

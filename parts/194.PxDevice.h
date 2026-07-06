@@ -221,4 +221,12 @@ struct PxDevice
         break;
     }
   }
+
+  // "*IDN?"
+  void id() const
+  {
+    const char * cmd = CMD_IDENTIFY;
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
 };

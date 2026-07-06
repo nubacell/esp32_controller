@@ -1340,6 +1340,14 @@ struct PxDevice
         break;
     }
   }
+
+  // "*IDN?"
+  void id() const
+  {
+    const char * cmd = CMD_IDENTIFY;
+    LOG("cmd='%s'", cmd);
+    write_cmd(cmd);
+  }
 };
 
 struct PS_Device
@@ -1387,6 +1395,8 @@ struct PS_Device
     get_V();
   }
 };
+
+extern PS_Device psDevice;
 
 struct EL_Device
   : PxDevice
@@ -1590,12 +1600,15 @@ struct EL_Device
     write_cmd(cmd);
   }
 
+/*
+  // must be available from 'PxDevice'
   void id() const
   {
     const char * cmd = CMD_IDENTIFY;
     LOG("cmd='%s'", cmd);
     write_cmd(cmd);
   }
+*/
 };
 
 extern EL_Device elDevice;
@@ -1770,44 +1783,19 @@ static CN_Device cnDevice = {
 };
 
 // 'TENMA 72-2710 V6.6 SN:31428462'
+// 'THURLBY THANDAR, QPX1200SP, 620839, 4.31-4.08'
 
-static PS_Device psDevice {
+PS_Device psDevice {
   /*.uartConfig =*/ &ps_uartConfig,
-  /*.expected_id =*/ "TENMA 72-2710 V6.6 SN:31428462",
+  /*.expected_id =*/
+  //"TENMA 72-2710 V6.6 SN:31428462",
+  "THURLBY THANDAR, QPX1200SP, 620839, 4.31-4.08",
 };
 
-// "TENMA 72-2710 V6.6 SN:31428462"
-/*
-  settings:
-
-    ISET<X>:<NR2>
-    VSET<X>:<NR2>
-    ISET<X>?
-    VSET<X>?
-
-  actual output
-
-    IOUT<X>?
-    VOUT<X>?
-
-  output on/off
-
-    OUT<Boolean>
-
-  STATUS?
-*/
-static const char * const psDevice_commands[] = {
-  "ISET1?",
-  "VSET1?",
-  "IOUT1?",
-  "VOUT1?",
-  "STATUS?",
-};
-static void psDevice_commands_try()
+void ps_id(const char * args)
 {
-  psDevice.commands_try(
-    psDevice_commands,
-    ARRAY_SIZE(psDevice_commands));
+  (void) args;
+  psDevice.id();
 }
 
 // 'TENMA 72-13210 V2.20 SN:00010724'
@@ -2110,6 +2098,8 @@ static const commands_map_t commands_map[] = {
 
   COMMAND(spi_run),
   COMMAND(spi_stats),
+
+  COMMAND(ps_id),
 #undef COMMAND
 };
 

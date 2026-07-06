@@ -201,12 +201,15 @@ struct EL_Device
     write_cmd(cmd);
   }
 
+/*
+  // must be available from 'PxDevice'
   void id() const
   {
     const char * cmd = CMD_IDENTIFY;
     LOG("cmd='%s'", cmd);
     write_cmd(cmd);
   }
+*/
 };
 
 extern EL_Device elDevice;
