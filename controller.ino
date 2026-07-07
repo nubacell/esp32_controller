@@ -382,7 +382,6 @@ void spi_report_stats();
 void spi_run(const char * args);
 void spi_stats(const char * args);
 
-//#define DUMP_GPIO_PINS_CONFIG
 //#define SPI_TRANS_TIME_STATS
 
 const uint8_t spi_ms_pins[SPI_SENSOR_DEVICES_COUNT] = {
@@ -421,9 +420,11 @@ const spi_bus_config_t spi_bus_config = {
 
 #if 0
   // Output data IO default level when no transaction
+  // Note: Looks like ESP32 'slave' does not support 'data_io_default_level'
   //.data_io_default_level = true,
+  //.data_io_default_level = false,
   //.max_transfer_sz = SPI_BUFFER_SIZE,
-  .isr_cpu_id = ESP_INTR_CPU_AFFINITY_AUTO,
+  //.isr_cpu_id = ESP_INTR_CPU_AFFINITY_AUTO,
 #endif
 };
 
@@ -475,6 +476,7 @@ const uint8_t spi_pins[] = {
   SPI_GPIO_CS,
 };
 
+#if 0
 // GPIO_DRIVE_CAP_0: ~5 mA
 // GPIO_DRIVE_CAP_1: ~10 mA
 // GPIO_DRIVE_CAP_2: ~20 mA -- default
@@ -483,6 +485,9 @@ void spi_pins_setup()
 {
   LOG("");
   // MISO pin (if used) is 'OUTPUT'.
+  //pinMode(SPI_GPIO_MISO, INPUT_PULLUP);
+  //pinMode(SPI_GPIO_MISO, OUTPUT);
+  //digitalWrite(SPI_GPIO_MISO, HIGH);
 
   // MOSI, SCLK and CS pins are 'INPUT_PULLUP'
   for (unsigned i = 0; i < ARRAY_SIZE(spi_pins); ++i) {
@@ -492,6 +497,7 @@ void spi_pins_setup()
     //gpio_set_drive_capability(spi_pin, GPIO_DRIVE_CAP_3);
   }
 }
+#endif
 
 
 // Called after SPI is configured for 'transaction'.
@@ -503,6 +509,7 @@ uint32_t spi_post_setup_cb_us_;
 void spi_post_setup_cb(spi_slave_transaction_t * transaction)
 {
   ++spi_post_setup_cb_count_;
+  //scope_sync_on(true);
 
 #if defined SPI_TRANS_TIME_STATS
   spi_post_setup_cb_us_ = esp_timer_get_time();
@@ -528,6 +535,7 @@ uint32_t spi_post_trans_cb_us_max_;
 void spi_post_trans_cb(spi_slave_transaction_t * transaction)
 {
   ++spi_post_trans_cb_count_;
+  //scope_sync_on(false);
 
 #if defined SPI_TRANS_TIME_STATS
   spi_post_trans_cb_us_ = esp_timer_get_time();
@@ -550,20 +558,51 @@ void spi_post_trans_cb(spi_slave_transaction_t * transaction)
 }
 
 
-static bool spi_init_failure = false;
+//static bool spi_init_failure = false;
 
 void spi_setup()
 {
   LOG("");
-  spi_pins_setup();
   spi_ms_pins_setup();
-
-  spi_init_failure = (ESP_OK != spi_slave_initialize(SPI_DEVICE,
-      &spi_bus_config, &spi_slave_interface_config, SPI_DMA_DISABLED));
-  if (spi_init_failure) {
-    LOG("ERROR: %s() failure", "spi_slave_initialize");
-  }
   LOG("");
+
+  //spi_chip_init();
+
+  LOG("");
+}
+
+bool spi_init()
+{
+  //LOG("");
+  const auto r = spi_chip_init();
+  //LOG("");
+  return r;
+}
+
+bool spi_down()
+{
+  //LOG("");
+
+#if 0
+  const auto spi_slave_disable_r = (ESP_OK == spi_slave_disable(SPI_DEVICE));
+  if (!spi_slave_disable_r) {
+    LOG("ERROR: '%s()' failure", "spi_slave_disable");
+  }
+  //LOG("");
+#endif
+
+#if 0
+  const auto r = true;
+#else
+  const auto r = spi_chip_down();
+
+  gpio_set_level(gpio_num_t(SPI_GPIO_MISO), 1);
+  gpio_set_pull_mode(gpio_num_t(SPI_GPIO_MISO), GPIO_PULLUP_ONLY);
+  gpio_set_direction(gpio_num_t(SPI_GPIO_MISO), GPIO_MODE_INPUT_OUTPUT);
+#endif
+
+  //LOG("");
+  return r;
 }
 
 
@@ -646,8 +685,12 @@ void SPI_Device::state(State new_state)
 void SPI_Device::on_state_init(uint32_t now_ms)
 {
   (void) now_ms;
+#if 1
+  state(State::idle);
+#else
   spi_setup();
   state( (spi_init_failure) ? State::init_failed : State::idle);
+#endif
 }
 
 // Can be used to implement delay before init retry
@@ -662,6 +705,8 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
   if (run_) {
     run_ = false;
 
+    scope_sync_on(true);
+
     constexpr uint32_t spi_transfer_all_timeout_ms = 100;
     timeout_time_ms_ = now_ms + spi_transfer_all_timeout_ms;
 
@@ -669,13 +714,27 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
     spi_sensor_n_ = 0;
     sensors_data_valid_ = false;
 
-    memset(spi_rx_buffers, 0, sizeof(spi_rx_buffers));
+    //memset(spi_rx_buffers, 0, sizeof(spi_rx_buffers));
     //memset(spi_rx_buffers, 0x5A, sizeof(spi_rx_buffers));
     //memset(spi_rx_buffers, 'W', sizeof(spi_rx_buffers));
+    //memset(spi_rx_buffers, 'R', sizeof(spi_rx_buffers));
+    //memset(spi_tx_buffers, 'T', sizeof(spi_tx_buffers));
+    memset(spi_rx_buffers, 'S', sizeof(spi_rx_buffers));
+    //memset(spi_tx_buffers, 'U', sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0x00, sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0xFF, sizeof(spi_tx_buffers));
+    memset(spi_tx_buffers, 0x8F, sizeof(spi_tx_buffers));
 
-    if (spi_transfer_start(spi_sensor_n_)) {
-      state(State::running);
+    if (spi_init()) {
+      if (spi_transfer_start(spi_sensor_n_)) {
+        state(State::running);
+      } else {
+        spi_down();
+        scope_sync_on(false);
+        state(State::idle);
+      }
     } else {
+      scope_sync_on(false);
       state(State::idle);
     }
   }
@@ -694,23 +753,31 @@ void SPI_Device::on_state_running(uint32_t now_ms)
 
     if (++spi_sensor_n_ < SPI_SENSOR_DEVICES_COUNT) {
       //LOG("spi_sensor_n_=%u < SPI_SENSOR_DEVICES_COUNT=%u", spi_sensor_n_, SPI_SENSOR_DEVICES_COUNT);
+
       if (!spi_transfer_start(spi_sensor_n_)) {
-        //LOG("");
+        spi_down();
+        scope_sync_on(false);
         state(State::idle);
       }
+
     } else {
       //LOG("end of sensors");
       sensors_data_valid_ = spi_rx_bits_valid();
       //LOG("sensors_data_valid_=%i", sensors_data_valid_);
+      spi_down();
+      scope_sync_on(false);
       state(State::idle);
     }
   } else
   if (timeout_time_ms_ <= now_ms) {
     LOG("%s %s", "spi transfer", "timeout");
 
+    spi_down();
+
     // make sure MS pin of spi_sensor_n_ is inactive
     digitalWrite(spi_ms_pins[spi_sensor_n_], SPI_MS_INACTIvE);
 
+    scope_sync_on(false);
     state(State::idle);
   }
 }
@@ -2491,13 +2558,9 @@ void serial_setup()
 void setup()
 {
   xx_uartConfigs_init();
-
-  // move 'spi_setup()' to 'spiDevice::on_state_init()'
-  //spi_setup();
-
+  scope_sync_setup();
+  spi_setup();
   report_config();
-
-  //STACK_MARKER(256);
 }
 
 void loop()
