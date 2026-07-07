@@ -183,7 +183,7 @@ void spi_setup()
   spi_ms_pins_setup();
   LOG("");
 
-  //spi_chip_init();
+  spi_chip_init();
 
   LOG("");
 }
@@ -191,7 +191,8 @@ void spi_setup()
 bool spi_init()
 {
   //LOG("");
-  const auto r = spi_chip_init();
+  //const auto r = spi_chip_init();
+  const auto r = true;
   //LOG("");
   return r;
 }
@@ -208,7 +209,7 @@ bool spi_down()
   //LOG("");
 #endif
 
-#if 0
+#if 1
   const auto r = true;
 #else
   const auto r = spi_chip_down();
@@ -342,18 +343,20 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
     //memset(spi_tx_buffers, 0xFF, sizeof(spi_tx_buffers));
     memset(spi_tx_buffers, 0x8F, sizeof(spi_tx_buffers));
 
-    if (spi_init()) {
+    //if (spi_init()) {
       if (spi_transfer_start(spi_sensor_n_)) {
         state(State::running);
       } else {
-        spi_down();
+        //spi_down();
         scope_sync_on(false);
         state(State::idle);
       }
+/*
     } else {
       scope_sync_on(false);
       state(State::idle);
     }
+*/
   }
 }
 
@@ -372,7 +375,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
       //LOG("spi_sensor_n_=%u < SPI_SENSOR_DEVICES_COUNT=%u", spi_sensor_n_, SPI_SENSOR_DEVICES_COUNT);
 
       if (!spi_transfer_start(spi_sensor_n_)) {
-        spi_down();
+        //spi_down();
         scope_sync_on(false);
         state(State::idle);
       }
@@ -381,7 +384,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
       //LOG("end of sensors");
       sensors_data_valid_ = spi_rx_bits_valid();
       //LOG("sensors_data_valid_=%i", sensors_data_valid_);
-      spi_down();
+      //spi_down();
       scope_sync_on(false);
       state(State::idle);
     }
@@ -389,7 +392,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
   if (timeout_time_ms_ <= now_ms) {
     LOG("%s %s", "spi transfer", "timeout");
 
-    spi_down();
+    //spi_down();
 
     // make sure MS pin of spi_sensor_n_ is inactive
     digitalWrite(spi_ms_pins[spi_sensor_n_], SPI_MS_INACTIvE);
