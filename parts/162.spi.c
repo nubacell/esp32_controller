@@ -181,16 +181,6 @@ void spi_setup()
     LOG("ERROR: %s() failure", "spi_slave_initialize");
   }
   LOG("");
-
-#if defined DUMP_GPIO_PINS_CONFIG
-  gpio_dump_io_configuration(stdout,
-      (1ULL << 12)
-      | (1ULL << 13)
-      | (1ULL << 14)
-      | (1ULL << 15)
-      | (1ULL << 22)
-      | (1ULL << 23));
-#endif
 }
 
 
@@ -318,9 +308,6 @@ void SPI_Device::on_state_running(uint32_t now_ms)
 {
   if (spi_transfer_finished_) {
     //LOG("spi_transfer_finished_");
-
-    //LOG(". spi_rx_buffers");
-    //hex_dump( (const uint8_t*)spi_rx_buffers, 32);
 
     if (++spi_sensor_n_ < SPI_SENSOR_DEVICES_COUNT) {
       //LOG("spi_sensor_n_=%u < SPI_SENSOR_DEVICES_COUNT=%u", spi_sensor_n_, SPI_SENSOR_DEVICES_COUNT);

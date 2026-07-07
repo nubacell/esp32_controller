@@ -108,6 +108,22 @@ const char * el_function_to_string(unsigned function);
 extern const char * const el_ranges[];
 const char * el_range_to_string(unsigned cc_range);
 
+void el_id(const char * args);
+void el_clear_errors(const char * args);
+void el_function(const char * args);
+void el_input(const char * args);
+void el_cc_level(const char * args);
+void el_cv_level(const char * args);
+void el_cc_range(const char * args);
+void el_cv_range(const char * args);
+
+void ps_id(const char * args);
+void ps_v(const char * args);
+void ps_c(const char * args);
+void ps_ovp(const char * args);
+void ps_ocp(const char * args);
+void ps_output(const char * args);
+
 static const char CMD_IDENTIFY[] = "*IDN?";
 
 struct Runnable
@@ -523,16 +539,6 @@ void spi_setup()
     LOG("ERROR: %s() failure", "spi_slave_initialize");
   }
   LOG("");
-
-#if defined DUMP_GPIO_PINS_CONFIG
-  gpio_dump_io_configuration(stdout,
-      (1ULL << 12)
-      | (1ULL << 13)
-      | (1ULL << 14)
-      | (1ULL << 15)
-      | (1ULL << 22)
-      | (1ULL << 23));
-#endif
 }
 
 
@@ -660,9 +666,6 @@ void SPI_Device::on_state_running(uint32_t now_ms)
 {
   if (spi_transfer_finished_) {
     //LOG("spi_transfer_finished_");
-
-    //LOG(". spi_rx_buffers");
-    //hex_dump( (const uint8_t*)spi_rx_buffers, 32);
 
     if (++spi_sensor_n_ < SPI_SENSOR_DEVICES_COUNT) {
       //LOG("spi_sensor_n_=%u < SPI_SENSOR_DEVICES_COUNT=%u", spi_sensor_n_, SPI_SENSOR_DEVICES_COUNT);
@@ -1359,41 +1362,20 @@ struct PS_Device
     : PxDevice(uartConfig_, expected_id_)
   {}
 
-  // 31 2e 30 30 30 0a                                 |1.000.|
-  // 31 2e 32 33 34 0a                                 |1.234.|
-  // 35 2e 31 30 30 0a                                 |5.100.|         ISET1:12.345    ISET1:9.999
-  void get_I()
-  {
-    write_cmd("ISET1?");
-  }
+  void v() const;
+  void c() const;
+  void ovp() const;
+  void ocp() const;
+  void output() const;
 
-  // 30 39 2e 30 30 0a                                 |09.00.|
-  // 31 32 2e 33 34 0a                                 |12.34.|
-  // 30 30 2e 31 32 0a                                 |00.12.|
-  // 33 31 2e 30 30 0a                                 |31.00.|
-  // 30 30 2e 30 30 0a                                 |00.00.|
-  void get_V()
-  {
-    write_cmd("VSET1?");
-  }
+  void x(const char * s, double v) const;
 
-  void set_I(double v)
-  {
-    char cmd[sizeof("ISET1:9.999")];
-    snprintf(cmd, sizeof(cmd), "ISET1:%.3f", v);
-    write_cmd(cmd);
-
-    get_I();
-  }
-
-  void set_V(double v)
-  {
-    char cmd[sizeof("VSET1:99.99")];
-    snprintf(cmd, sizeof(cmd), "VSET1:%.2f", v);
-    write_cmd(cmd);
-
-    get_V();
-  }
+  void v(double v) const;
+  void c(double v) const;
+  void ovp(double v) const;
+  void ocp(double v) const;
+  void output_ON() const;
+  void output_OFF() const;
 };
 
 extern PS_Device psDevice;
@@ -1778,6 +1760,89 @@ struct Test
   }
 };
 
+void PS_Device::v() const
+{
+  const char * cmd = "V1?";
+  LOG("cmd='%s'", cmd);
+  write_cmd(cmd);
+}
+
+void PS_Device::c() const
+{
+  const char * cmd = "I1?";
+  LOG("cmd='%s'", cmd);
+  write_cmd(cmd);
+}
+
+void PS_Device::ovp() const
+{
+  const char * cmd = "OVP1?";
+  LOG("cmd='%s'", cmd);
+  write_cmd(cmd);
+}
+
+void PS_Device::ocp() const
+{
+  const char * cmd = "OCP1?";
+  LOG("cmd='%s'", cmd);
+  write_cmd(cmd);
+}
+
+void PS_Device::output() const
+{
+  const char * cmd = "OP1?";
+  LOG("cmd='%s'", cmd);
+  write_cmd(cmd);
+}
+
+/*
+  "I1"
+  "V1"
+  "OCP1"
+  "OVP1"
+*/
+void PS_Device::x(const char * s, double v) const
+{
+  char cmd[sizeof("XXX1 12.123")];
+  snprintf(cmd, sizeof(cmd), "%s %.3f", s, v);
+  LOG("cmd='%s'", cmd);
+  write_cmd(cmd);
+}
+
+void PS_Device::v(double v) const
+{
+  x("V1", v);
+}
+
+void PS_Device::c(double v) const
+{
+  x("I1", v);
+}
+
+void PS_Device::ovp(double v) const
+{
+  x("OVP1", v);
+}
+
+void PS_Device::ocp(double v) const
+{
+  x("OCP1", v);
+}
+
+void PS_Device::output_ON() const
+{
+  const char * cmd = "OP1 1";
+  LOG("cmd='%s'", cmd);
+  write_cmd(cmd);
+}
+
+void PS_Device::output_OFF() const
+{
+  const char * cmd = "OP1 0";
+  LOG("cmd='%s'", cmd);
+  write_cmd(cmd);
+}
+
 static CN_Device cnDevice = {
   /*.uartConfig =*/ &cn_uartConfig,
 };
@@ -1796,6 +1861,78 @@ void ps_id(const char * args)
 {
   (void) args;
   psDevice.id();
+}
+
+void ps_v(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    char * endptr = NULL;
+    double v = strtod(args, &endptr);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    psDevice.v(v);
+  }
+  psDevice.v();
+}
+
+void ps_c(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    char * endptr = NULL;
+    double v = strtod(args, &endptr);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    psDevice.c(v);
+  }
+  psDevice.c();
+}
+
+void ps_ovp(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    char * endptr = NULL;
+    double v = strtod(args, &endptr);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    psDevice.ovp(v);
+  }
+  psDevice.ovp();
+}
+
+void ps_ocp(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    char * endptr = NULL;
+    double v = strtod(args, &endptr);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    psDevice.ocp(v);
+  }
+  psDevice.ocp();
+}
+
+void ps_output(const char * args)
+{
+  args = skip_whitespace(args);
+  if (*args) {
+    if (!strcasecmp(args, "on")) {
+      psDevice.output_ON();
+    } else
+    if (!strcasecmp(args, "off")) {
+      psDevice.output_OFF();
+    } else {
+      LOG("output must be ON or OFF");
+    }
+  }
+  psDevice.output();
 }
 
 // 'TENMA 72-13210 V2.20 SN:00010724'
@@ -2100,6 +2237,11 @@ static const commands_map_t commands_map[] = {
   COMMAND(spi_stats),
 
   COMMAND(ps_id),
+  COMMAND(ps_v),
+  COMMAND(ps_c),
+  COMMAND(ps_ovp),
+  COMMAND(ps_ocp),
+  COMMAND(ps_output),
 #undef COMMAND
 };
 
