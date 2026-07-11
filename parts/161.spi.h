@@ -1,8 +1,6 @@
 
-#define SPI_GPIO_MOSI 13
-// TODO: Try to work without 'MISO'
-//#define SPI_GPIO_MISO -1
 #define SPI_GPIO_MISO 12
+#define SPI_GPIO_MOSI 13
 #define SPI_GPIO_SCLK 14
 #define SPI_GPIO_CS   15
 

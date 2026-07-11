@@ -3,7 +3,7 @@ bool spi_chip_active_ = false;
 
 bool spi_chip_init()
 {
-  //LOG("");
+  LOG("");
   if (spi_chip_active_) { return true; }
 
   const auto r = (ESP_OK == spi_slave_initialize(SPI_DEVICE,
@@ -11,24 +11,20 @@ bool spi_chip_init()
   if (!r) {
     LOG("ERROR: %s() failure", "spi_slave_initialize");
   } else {
-    spi_chip_active_ = r;
+    spi_chip_active_ = true;
   }
-  //LOG("");
   return r;
 }
 
 bool spi_chip_down()
 {
-  //LOG("");
   if (!spi_chip_active_) { return true; }
 
-  //LOG("");
   const auto r = (ESP_OK == spi_slave_free(SPI_DEVICE));
   if (!r) {
     LOG("ERROR: '%s()' failure", "spi_slave_free");
   } else {
     spi_chip_active_ = false;
   }
-  //LOG("");
   return r;
 }
