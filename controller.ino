@@ -1,5 +1,11 @@
 #include <Arduino.h>
 
+#include "driver/gpio.h"
+
+extern "C" {
+esp_err_t gpio_output_enable(gpio_num_t gpio_num);
+}
+
 #include "driver/uart.h"
 #include "esp_err.h" // ESP_ERROR_CHECK()
 #include "esp_log.h" // ESP_LOG*()
@@ -48,6 +54,10 @@
 #define MAKE_STRING_HELPER1(s) MAKE_STRING_HELPER2(s)
 #define MAKE_STRING(s) MAKE_STRING_HELPER1(s)
 
+double command_args_to_ud(const char * args, const char ** tail);
+
+unsigned long command_args_to_ul(const char * args, const char ** tail);
+
 uint32_t cpu_sp_get();
 
 void hex_dump(const uint8_t * data, size_t size);
@@ -56,7 +66,14 @@ static void log(const char *file, unsigned line, const char * function, const ch
 //#define LOG(format, args...) log(__FILE__, __LINE__, __FUNCTION__, format, ##args)
 #define LOG(format, args...) log(__FILE__, __LINE__, __PRETTY_FUNCTION__, format, ##args)
 
+void pin_dump(const char * args);
+void pin_reset(const char * args);
+void pin_level(const char * args);
+void pin_mode(const char * args);
+void pin_pull(const char * args);
+
 const char * skip_whitespace(const char * p);
+char * skip_whitespace(char * p);
 
 //__attribute__((noinline))
 __attribute__((noipa))
@@ -2172,6 +2189,60 @@ void u2_lf(const char * args) { ux_lf(2, args); }
 void u1_lfcr(const char * args) { ux_lfcr(1, args); }
 void u2_lfcr(const char * args) { ux_lfcr(2, args); }
 
+double command_args_to_ud(const char * args, const char ** tail)
+{
+  double v;
+  char * endptr = NULL;
+
+  args = skip_whitespace(args);
+  if (!*args) {
+    v = 0;
+  } else {
+    v = strtod(args, &endptr);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (endptr) {
+    endptr = skip_whitespace(endptr);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (tail) {
+    *tail = endptr;
+  } else if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
+  }
+
+  return v;
+}
+
+unsigned long command_args_to_ul(const char * args, const char ** tail)
+{
+  unsigned v;
+  char * endptr = NULL;
+
+  args = skip_whitespace(args);
+  if (!*args) {
+    v = 0;
+  } else {
+    v = strtoul(args, &endptr, 0);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (endptr) {
+    endptr = skip_whitespace(endptr);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (tail) {
+    *tail = endptr;
+  } else if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
+  }
+
+  return v;
+}
+
 void ux_baud(unsigned n, const char * args)
 {
   const UartConfig * uartConfig = xx_uartConfigs[n];
@@ -2242,6 +2313,16 @@ static const commands_map_t commands_map[] = {
   COMMAND(ps_ovp),
   COMMAND(ps_ocp),
   COMMAND(ps_output),
+
+  COMMAND(scope_sync_on),
+  COMMAND(scope_sync_off),
+  COMMAND(scope_sync_pulse),
+
+  COMMAND(pin_dump),
+  COMMAND(pin_reset),
+  COMMAND(pin_level),
+  COMMAND(pin_mode),
+  COMMAND(pin_pull),
 #undef COMMAND
 };
 
@@ -2511,7 +2592,232 @@ void hex_dump(const uint8_t * data, size_t size)
   }
 }
 
+void pin_dump(const char * args)
+{
+  unsigned pin = command_args_to_ul(args, nullptr);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+  gpio_dump_io_configuration(stdout, (1ULL << pin));
+}
+
+/*
+    esp_err_t gpio_reset_pin(gpio_num_t gpio_num)
+
+      gpio_intr_disable(gpio_num);
+      gpio_pullup_en(gpio_num);
+      gpio_pulldown_dis(gpio_num);
+      gpio_input_disable(gpio_num);
+      gpio_output_disable(gpio_num);
+      gpio_hal_func_sel(gpio_context.gpio_hal, gpio_num, PIN_FUNC_GPIO);
+
+*/
+void pin_reset(const char * args)
+{
+  unsigned pin = command_args_to_ul(args, nullptr);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+  if (ESP_OK != gpio_reset_pin(gpio_num_t(pin))) {
+    LOG("ERROR: %s(pin=%u)", "gpio_reset_pin", pin);
+  }
+}
+
+/*
+    int gpio_get_level(gpio_num_t gpio_num);
+    esp_err_t gpio_set_level(gpio_num_t gpio_num, uint32_t level);
+
+      level Output level. 0: low ; 1: high
+*/
+void pin_level(const char * args)
+{
+  const char * tail = NULL;
+  unsigned pin = command_args_to_ul(args, &tail);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+
+  if (tail && *tail) {
+    unsigned v = command_args_to_ul(tail, nullptr);
+    LOG(". setting pin=%u level=%u", pin, v);
+    if (ESP_OK != gpio_set_level(gpio_num_t(pin), v)) {
+      LOG("ERROR: %s(pin=%u)", "gpio_set_level", pin);
+    }
+  }
+
+  LOG("%s(pin=%u)=%u", "gpio_get_level", pin, gpio_get_level(gpio_num_t(pin)));
+}
+
+/*
+    esp_err_t gpio_set_direction(gpio_num_t gpio_num, gpio_mode_t mode);
+
+    gpio_mode_t
+
+      GPIO_MODE_DISABLE
+      GPIO_MODE_INPUT                   // (1<<0)
+      GPIO_MODE_OUTPUT                  //          (1<<1)
+      GPIO_MODE_OUTPUT_OD               //          (1<<1) | (1<<2)
+      GPIO_MODE_INPUT_OUTPUT            // (1<<0) | (1<<1)
+      GPIO_MODE_INPUT_OUTPUT_OD         // (1<<0) | (1<<1) | (1<<2)
+
+    if (mode & GPIO_MODE_DEF_INPUT ) { gpio_input_enable(gpio_num);  } else { gpio_input_disable(gpio_num); }
+    if (mode & GPIO_MODE_DEF_OUTPUT) { gpio_output_enable(gpio_num); } else { gpio_output_disable(gpio_num); }
+    if (mode & GPIO_MODE_DEF_OD    ) { gpio_od_enable(gpio_num);     } else { gpio_od_disable(gpio_num); }
+
+*/
+static const struct {
+  gpio_mode_t mode;
+  const char * name;
+} pin_modes[] = {
+#define MODE(x) { GPIO_MODE_##x, #x }
+  MODE(DISABLE),
+  MODE(INPUT),
+  MODE(OUTPUT),
+  MODE(OUTPUT_OD),
+  MODE(INPUT_OUTPUT_OD),
+  MODE(INPUT_OUTPUT),
+#undef MODE
+};
+
+static void pin_modes_list()
+{
+  for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
+    LOG(". %u %s", pin_modes[i].mode, pin_modes[i].name);
+  }
+}
+
+void pin_mode(const char * args)
+{
+  const char * tail = NULL;
+  unsigned pin = command_args_to_ul(args, &tail);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+
+  if (tail && *tail) {
+    LOG("tail='%s'", tail);
+    for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
+      if (!strcasecmp(tail, pin_modes[i].name)) {
+        LOG(". setting mode %u %s", pin_modes[i].mode, pin_modes[i].name);
+        const auto mode = pin_modes[i].mode;
+        if (ESP_OK != gpio_set_direction(gpio_num_t(pin), mode)) {
+          LOG("ERROR: %s(pin=%u, mode=%u)", "gpio_set_direction", pin, mode);
+        }
+        return;
+      }
+    }
+    unsigned v = command_args_to_ul(tail, nullptr);
+    for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
+      if (pin_modes[i].mode == v) {
+        LOG(". setting mode %u %s", pin_modes[i].mode, pin_modes[i].name);
+        const auto mode = pin_modes[i].mode;
+        if (ESP_OK != gpio_set_direction(gpio_num_t(pin), mode)) {
+          LOG("ERROR: %s(pin=%u, mode=%u)", "gpio_set_direction", pin, mode);
+        }
+        return;
+      }
+    }
+  }
+
+  LOG("pin modes:");
+  pin_modes_list();
+}
+
+/*
+    esp_err_t gpio_set_pull_mode(gpio_num_t gpio_num, gpio_pull_mode_t pull);
+
+      gpio_pull_mode_t
+
+        GPIO_PULLUP_ONLY,               // Pad pull up
+        GPIO_PULLDOWN_ONLY,             // Pad pull down
+        GPIO_PULLUP_PULLDOWN,           // Pad pull up + pull down
+        GPIO_FLOATING,                  // Pad floating
+*/
+
+static const struct {
+  const char * name;
+  gpio_pull_mode_t pull;
+} pin_pulls[] = {
+#define PULL(n, e) { n, GPIO_##e }
+  PULL("UP"  , PULLUP_ONLY),
+  PULL("DOWN", PULLDOWN_ONLY),
+  PULL("BOTH", PULLUP_PULLDOWN),
+  PULL("NONE", FLOATING),
+#undef MODE
+};
+
+static void pin_pulls_list()
+{
+  for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
+    LOG(". %u %s", pin_pulls[i].pull, pin_pulls[i].name);
+  }
+}
+
+void pin_pull(const char * args)
+{
+  const char * tail = NULL;
+  unsigned pin = command_args_to_ul(args, &tail);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+
+  if (tail && *tail) {
+    LOG("tail='%s'", tail);
+    for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
+      if (!strcasecmp(tail, pin_pulls[i].name)) {
+        LOG(". setting pull %u %s", pin_pulls[i].pull, pin_pulls[i].name);
+        const auto pull = pin_pulls[i].pull;
+        if (ESP_OK != gpio_set_pull_mode(gpio_num_t(pin), pull)) {
+          LOG("ERROR: %s(pin=%u, pull=%u)", "gpio_set_pull_mode", pin, pull);
+        }
+        return;
+      }
+    }
+    unsigned v = command_args_to_ul(tail, nullptr);
+    for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
+      if (pin_pulls[i].pull == v) {
+        LOG(". setting pull %u %s", pin_pulls[i].pull, pin_pulls[i].name);
+        const auto pull = pin_pulls[i].pull;
+        if (ESP_OK != gpio_set_pull_mode(gpio_num_t(pin), pull)) {
+          LOG("ERROR: %s(pin=%u, pull=%u)", "gpio_set_pull_mode", pin, pull);
+        }
+        return;
+      }
+    }
+  }
+
+  LOG("pin pulls:");
+  pin_pulls_list();
+}
+
+/*
+    esp_err_t gpio_input_enable(gpio_num_t gpio_num);
+    esp_err_t gpio_output_enable(gpio_num_t gpio_num);
+    esp_err_t gpio_output_disable(gpio_num_t gpio_num);
+    esp_err_t gpio_od_disable(gpio_num_t gpio_num)
+    esp_err_t gpio_od_enable(gpio_num_t gpio_num)
+
+    'gpio_input_disable' exists but is inaccessible due to 'static':
+    static esp_err_t gpio_input_disable(gpio_num_t gpio_num)
+*/
+
 const char * skip_whitespace(const char * p)
+{
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  while (' ' == *p || '\t' == *p) {
+    ++p;
+    //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  }
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  return p;
+}
+
+char * skip_whitespace(char * p)
 {
   //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
   while (' ' == *p || '\t' == *p) {
