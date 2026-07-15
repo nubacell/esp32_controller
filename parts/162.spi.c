@@ -317,8 +317,12 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
     memset(spi_rx_buffers, 'R', sizeof(spi_rx_buffers));
     //memset(spi_tx_buffers, 'T', sizeof(spi_tx_buffers));
     //memset(spi_tx_buffers, 0x00, sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0x0F, sizeof(spi_tx_buffers));
     //memset(spi_tx_buffers, 0xFF, sizeof(spi_tx_buffers));
-    memset(spi_tx_buffers, 0x81, sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0xC3, sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0xF0, sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0x81, sizeof(spi_tx_buffers));
+    memset(spi_tx_buffers, 0x99, sizeof(spi_tx_buffers));
 
     if (spi_transfer_start(spi_sensor_n_)) {
       state(State::running);
@@ -418,4 +422,5 @@ void spi_stats(const char * args)
 {
   (void) args;
   spi_report_stats();
+  SensorDevices_Data_report_all();
 }

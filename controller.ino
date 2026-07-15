@@ -1,5 +1,22 @@
 #include <Arduino.h>
 
+// https://github.com/RobTillaart/CRC
+#include "CRC32.h"
+
+/*
+  The following function declaration shall be automatically
+  taken from #include "CRC32.h" above but build fails if it
+  is not repeated here.
+*/
+uint8_t calcCRC8(
+    const uint8_t *array, crc_size_t length,
+    uint8_t polynome   = CRC8_POLYNOME,
+    uint8_t initial    = CRC8_INITIAL,
+    uint8_t xorOut     = CRC8_XOR_OUT,
+    bool reverseIn     = CRC8_REV_IN,
+    bool reverseOut    = CRC8_REV_OUT,
+    crc_size_t yieldPeriod = CRC_YIELD_DISABLED);
+
 #include "driver/gpio.h"
 
 extern "C" {
@@ -45,6 +62,16 @@ esp_err_t gpio_output_enable(gpio_num_t gpio_num);
     Serial.print(__func__); \
     Serial.print(" finished"); \
     Serial.println(" ---");
+
+#define OFFSET_OF(container_type, member_name) \
+    ((size_t)&(((container_type *)0)->member_name))
+
+#define SIZE_OF_MEMBER(container_type, member_name) \
+    sizeof((((container_type *)0)->member_name))
+
+#define OFFSET_OF_END(container_type, member_name) \
+    (OFFSET_OF(container_type, member_name) \
+        + SIZE_OF_MEMBER(container_type, member_name))
 
 #define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
 
@@ -380,6 +407,26 @@ void spi_report_stats();
 void spi_run(const char * args);
 void spi_stats(const char * args);
 
+typedef uint16_t AnalogSignal_t;
+#define ANALOG_SIGNALS_COUNT 8
+typedef AnalogSignal_t AnalogSignals_t[ANALOG_SIGNALS_COUNT];
+
+typedef uint16_t VCC_t;
+
+typedef struct SensorDeviceData_s {
+  uint8_t format; // data format version number, 0 for now
+  uint8_t device_id;
+  AnalogSignals_t analogSignals;
+  VCC_t vcc;
+  uint8_t checksum;
+} SensorDeviceData_t;
+/*
+    sizeof(SensorDeviceData_t) on
+      LGT8F  21
+      ESP32  22 one extra byte is added after checksum
+*/
+#define LGT8F_SPI_DATA_SIZE OFFSET_OF_END(SensorDeviceData_t, checksum)
+
 //#define SPI_TRANS_TIME_STATS
 
 const uint8_t spi_ms_pins[SPI_SENSOR_DEVICES_COUNT] = {
@@ -698,8 +745,12 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
     memset(spi_rx_buffers, 'R', sizeof(spi_rx_buffers));
     //memset(spi_tx_buffers, 'T', sizeof(spi_tx_buffers));
     //memset(spi_tx_buffers, 0x00, sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0x0F, sizeof(spi_tx_buffers));
     //memset(spi_tx_buffers, 0xFF, sizeof(spi_tx_buffers));
-    memset(spi_tx_buffers, 0x81, sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0xC3, sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0xF0, sizeof(spi_tx_buffers));
+    //memset(spi_tx_buffers, 0x81, sizeof(spi_tx_buffers));
+    memset(spi_tx_buffers, 0x99, sizeof(spi_tx_buffers));
 
     if (spi_transfer_start(spi_sensor_n_)) {
       state(State::running);
@@ -799,6 +850,7 @@ void spi_stats(const char * args)
 {
   (void) args;
   spi_report_stats();
+  SensorDevices_Data_report_all();
 }
 
 bool spi_chip_active_ = false;
@@ -830,6 +882,60 @@ bool spi_chip_down()
   }
   return r;
 }
+
+static void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
+{
+  const auto analogSignal = deviceData.analogSignals[i];
+  Serial.print(" ");
+  //Serial.print(analogSignal);
+  //Serial.print("/");
+  Serial.print(analogSignal * 0.001, 3);
+}
+
+static void analog_report_all(const SensorDeviceData_t & deviceData)
+{
+  for (unsigned i = 0; i < ANALOG_SIGNALS_COUNT; ++i) {
+    analog_report_one(deviceData, i);
+  }
+  Serial.println("");
+}
+
+// byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
+static void SensorDevice_Data_report_one(unsigned i)
+{
+  const auto & deviceData = *(SensorDeviceData_t*)(&spi_rx_buffers[i][0]);
+
+#if 1
+  LOG(". sizeof(SensorDeviceData_t)=%zu LGT8F_SPI_DATA_SIZE==%zu", sizeof(SensorDeviceData_t), LGT8F_SPI_DATA_SIZE);
+  uint8_t checksum = calcCRC8(
+    (const uint8_t *) &deviceData,
+    LGT8F_SPI_DATA_SIZE - sizeof(deviceData.checksum));
+  LOG(". checksum=0x%02X", checksum);
+#endif
+  hex_dump( (const uint8_t *)&deviceData, sizeof(deviceData));
+
+  Serial.print(". . ");
+  Serial.print(deviceData.vcc);
+  Serial.print("/");
+  Serial.print(deviceData.vcc * 0.00125, 4);
+  Serial.print(" |");
+  analog_report_all(deviceData);
+}
+
+static void SensorDevices_Data_report_all()
+{
+  for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
+    SensorDevice_Data_report_one(i);
+  }
+}
+
+
+/*
+  uint8_t checksum = calcCRC8(
+    (const uint8_t *) &deviceData,
+    LGT8F_SPI_DATA_SIZE - sizeof(deviceData.checksum));
+  Serial.print(". checksum="); Serial.println(checksum, HEX);
+*/
 
 const char * to_string(PSState psstate) {
   switch (psstate) {
@@ -1712,125 +1818,12 @@ struct Test
   }
 
 
-  void change_PS_EL_configs(const ProfileStep * profileStep)
-  {
-    if (ELState::off == profileStep->elconfig_.state_) {
-      LOG("deactivatin EL");
-      elDevice.set_input_OFF();
-    } else if (ELState::CC == profileStep->elconfig_.state_) {
-      LOG("changing EL config");
-      elDevice.cc_range(profileStep->elconfig_.range_);
-      elDevice.cc_level(profileStep->elconfig_.level_);
-      elDevice.cc_level();
-      elDevice.set_input_ON();
-    } else {
-      LOG("ERROR: Unexpected EL state");
-    }
-  }
-
-  void deactivate_PS_EL()
-  {
-    LOG("deactivating EL");
-    elDevice.set_input_OFF();
-  }
-
-
-  void on_state_idle(uint32_t now_ms)
-  {
-    if (run_) {
-      run_ = false;
-      abort_ = false;
-
-      if (!profile.steps_count_) {
-        LOG("ERROR: profile is empty");
-        state(State::idle);
-      } else {
-        state(State::running);
-
-        step_ = 0;
-        sub_step_ = 0;
-
-        const ProfileStep * profileStep = &profileSteps_[step_];
-
-        //start_time_ms_ = now_ms;
-        event_time_ms_ = now_ms;
-
-        // Change PS and EL configs.
-        change_PS_EL_configs(profileStep);
-
-        // if !substeps_count_ || measure_period_ms_ then next 'on_event' will
-        // be executed on next 'on_loop'.
-        if (profileStep->substeps_count_
-        && profileStep->measure_period_ms_) {
-          event_time_ms_ += profileStep->measure_period_ms_;
-        }
-      }
-    }
-  }
-
-  void on_event(uint32_t now_ms)
-  {
-    LOG("--- sub_step_=%u finished -- do measurements...", sub_step_);
-
-    const ProfileStep * profileStep = &profileSteps_[step_];
-    ++sub_step_;
-    if (sub_step_ < profileStep->substeps_count_) {
-      event_time_ms_ += profileStep->measure_period_ms_;
-    } else {
-      LOG("--- step_=%u finished -- change PS and EL configs...", step_);
-
-      ++step_;
-      if (step_ < profile.steps_count_) {
-
-        profileStep = &profileSteps_[step_];
-        sub_step_ = 0;
-
-        // Change PS and EL configs.
-        change_PS_EL_configs(profileStep);
-
-        // if !substeps_count_ || measure_period_ms_ then next 'on_event' will
-        // be executed on next 'on_loop'.
-        if (profileStep->substeps_count_
-        && profileStep->measure_period_ms_) {
-          event_time_ms_ += profileStep->measure_period_ms_;
-        }
-
-      } else {
-        deactivate_PS_EL();
-        LOG("--- test finished ---");
-        // 'test' finished
-        state(State::idle);
-      }
-    }
-  }
-
-  void on_state_running(uint32_t now_ms)
-  {
-    if (abort_) {
-      abort_ = false;
-
-      deactivate_PS_EL();
-
-      state(State::idle);
-    } else
-    if (event_time_ms_ <= now_ms) {
-      on_event(now_ms);
-    }
-  }
-
-  void on_loop(uint32_t now_ms) override
-  {
-    switch (state_) {
-#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
-      CASE_CALL(init)
-      CASE_CALL(idle)
-      CASE_CALL(running)
-#undef CASE_CALL
-      default:
-        LOG("Unexpected state=%u/'%s'", state_, to_string(state_));
-        break;
-    }
-  }
+  void change_PS_EL_configs(const ProfileStep * profileStep);
+  void deactivate_PS_EL();
+  void on_event(uint32_t now_ms);
+  void on_loop(uint32_t now_ms) override;
+  void on_state_idle(uint32_t now_ms);
+  void on_state_running(uint32_t now_ms);
 
   void run()
   {
@@ -2173,6 +2166,125 @@ void test_abort(const char * args)
 {
   (void) args;
   test.abort();
+}
+
+void Test::change_PS_EL_configs(const ProfileStep * profileStep)
+{
+  if (ELState::off == profileStep->elconfig_.state_) {
+    LOG("deactivatin EL");
+    elDevice.set_input_OFF();
+  } else if (ELState::CC == profileStep->elconfig_.state_) {
+    LOG("changing EL config");
+    elDevice.cc_range(profileStep->elconfig_.range_);
+    elDevice.cc_level(profileStep->elconfig_.level_);
+    elDevice.cc_level();
+    elDevice.set_input_ON();
+  } else {
+    LOG("ERROR: Unexpected EL state");
+  }
+}
+
+void Test::deactivate_PS_EL()
+{
+  LOG("deactivating EL");
+  elDevice.set_input_OFF();
+}
+
+void Test::on_event(uint32_t now_ms)
+{
+  LOG("--- sub_step_=%u finished -- do measurements...", sub_step_);
+
+  const ProfileStep * profileStep = &profileSteps_[step_];
+  ++sub_step_;
+  if (sub_step_ < profileStep->substeps_count_) {
+    event_time_ms_ += profileStep->measure_period_ms_;
+  } else {
+    LOG("--- step_=%u finished -- change PS and EL configs...", step_);
+
+    ++step_;
+    if (step_ < profile.steps_count_) {
+
+      profileStep = &profileSteps_[step_];
+      sub_step_ = 0;
+
+      // Change PS and EL configs.
+      change_PS_EL_configs(profileStep);
+
+      // if !substeps_count_ || measure_period_ms_ then next 'on_event' will
+      // be executed on next 'on_loop'.
+      if (profileStep->substeps_count_
+      && profileStep->measure_period_ms_) {
+        event_time_ms_ += profileStep->measure_period_ms_;
+      }
+
+    } else {
+      deactivate_PS_EL();
+      LOG("--- test finished ---");
+      // 'test' finished
+      state(State::idle);
+    }
+  }
+}
+
+void Test::on_loop(uint32_t now_ms) override
+{
+  switch (state_) {
+#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
+    CASE_CALL(init)
+    CASE_CALL(idle)
+    CASE_CALL(running)
+#undef CASE_CALL
+    default:
+      LOG("Unexpected state=%u/'%s'", state_, to_string(state_));
+      break;
+  }
+}
+
+void Test::on_state_idle(uint32_t now_ms)
+{
+  if (run_) {
+    run_ = false;
+    abort_ = false;
+
+    if (!profile.steps_count_) {
+      LOG("ERROR: profile is empty");
+      state(State::idle);
+    } else {
+      state(State::running);
+
+      step_ = 0;
+      sub_step_ = 0;
+
+      const ProfileStep * profileStep = &profileSteps_[step_];
+
+      //start_time_ms_ = now_ms;
+      event_time_ms_ = now_ms;
+
+      // Change PS and EL configs.
+      change_PS_EL_configs(profileStep);
+
+      // if !substeps_count_ || measure_period_ms_ then next 'on_event' will
+      // be executed on next 'on_loop'.
+      if (profileStep->substeps_count_
+      && profileStep->measure_period_ms_) {
+        event_time_ms_ += profileStep->measure_period_ms_;
+      }
+    }
+  }
+}
+
+void Test::on_state_running(uint32_t now_ms)
+{
+  if (abort_) {
+    abort_ = false;
+
+    deactivate_PS_EL();
+
+    state(State::idle);
+  } else
+  if (event_time_ms_ <= now_ms) {
+    on_event(now_ms);
+  }
 }
 
 // u1_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
