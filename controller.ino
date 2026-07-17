@@ -46,23 +46,6 @@ esp_err_t gpio_output_enable(gpio_num_t gpio_num);
 #define EL_UART_RX_GPIO         26
 #define EL_UART_TX_GPIO         25
 
-#define LOG_FUNCTION \
-    Serial.print("--- "); \
-    Serial.print(__func__); \
-    Serial.println(" ---");
-
-#define LOG_STARTED \
-    Serial.print("--- "); \
-    Serial.print(__func__); \
-    Serial.print(" started"); \
-    Serial.println(" ---");
-
-#define LOG_FINISHED \
-    Serial.print("--- "); \
-    Serial.print(__func__); \
-    Serial.print(" finished"); \
-    Serial.println(" ---");
-
 #define OFFSET_OF(container_type, member_name) \
     ((size_t)&(((container_type *)0)->member_name))
 
@@ -81,56 +64,26 @@ esp_err_t gpio_output_enable(gpio_num_t gpio_num);
 #define MAKE_STRING_HELPER1(s) MAKE_STRING_HELPER2(s)
 #define MAKE_STRING(s) MAKE_STRING_HELPER1(s)
 
-double command_args_to_ud(const char * args, const char ** tail);
-
-unsigned long command_args_to_ul(const char * args, const char ** tail);
-
-uint32_t cpu_sp_get();
-
-void hex_dump(const uint8_t * data, size_t size);
-
 static void log(const char *file, unsigned line, const char * function, const char * format, ...);
 //#define LOG(format, args...) log(__FILE__, __LINE__, __FUNCTION__, format, ##args)
 #define LOG(format, args...) log(__FILE__, __LINE__, __PRETTY_FUNCTION__, format, ##args)
 
-void pin_dump(const char * args);
-void pin_reset(const char * args);
-void pin_level(const char * args);
-void pin_mode(const char * args);
-void pin_pull(const char * args);
-
-#define SCOPE_SYNC 21
-
-void scope_sync_setup();
-void scope_sync_pulse(unsigned us);
-void scope_sync_on(bool on);
-
 const char * skip_whitespace(const char * p);
 char * skip_whitespace(char * p);
 
-//__attribute__((noinline))
-__attribute__((noipa))
-void stack_recurse(unsigned depth);
+struct Runnable
+{
+  virtual void on_loop(uint32_t now_ms)
+  {
+    LOG("");
+  }
+};
 
-//__attribute__((noinline))
-__attribute__((noipa))
-void stack_dump(unsigned line, const char * func);
-#define STACK_DUMP() stack_dump(__LINE__, __FUNCTION__)
+extern const char CMD_IDENTIFY[];
 
-//__attribute__((noinline))
-__attribute__((noipa))
-void stack_dump_recursive(unsigned line, const char * func, unsigned depth);
-#define STACK_DUMP_RECURSIVE(depth) stack_dump_recursive(__LINE__, __FUNCTION__, depth)
+double command_args_to_ud(const char * args, const char ** tail);
 
-__attribute__((noinline))
-void stack_marker_fill(uint32_t * addr, size_t size, uint8_t fill);
-#define STACK_MARKER(size,fill) \
-    { \
-      uint32_t stack_marker[size/sizeof(uint32_t)]; \
-      stack_marker_fill(stack_marker, sizeof(stack_marker), fill); \
-    }
-
-extern const char device_tag[];
+unsigned long command_args_to_ul(const char * args, const char ** tail);
 
 typedef void (*command_fn_t)(const char * args);
 
@@ -150,14 +103,6 @@ command_s_to_fn(
     const char * command_s,
     size_t command_len);
 
-// TODO: Use 'enum class' instead of 'unsigned'
-
-extern const char * const el_functions[];
-const char * el_function_to_string(unsigned function);
-
-extern const char * const el_ranges[];
-const char * el_range_to_string(unsigned cc_range);
-
 void el_id(const char * args);
 void el_clear_errors(const char * args);
 void el_function(const char * args);
@@ -174,15 +119,63 @@ void ps_ovp(const char * args);
 void ps_ocp(const char * args);
 void ps_output(const char * args);
 
-static const char CMD_IDENTIFY[] = "*IDN?";
-
-struct Runnable
+struct Controller
+  : Runnable
 {
-  virtual void on_loop(uint32_t now_ms)
+
+  enum class State {
+
+    /*
+      Check if PS and PL are present and usable.
+      Make sure they are turned off.
+    */
+    init,
+
+    /*
+      Waiting for commands from raspberry on uart #0
+    */
+    idle,
+
+    /*
+      test running
+    */
+    active,
+  };
+  State state = State::init;
+
+  void on_ps_timeout()
   {
     LOG("");
   }
+
+  void on_el_timeout()
+  {
+    LOG("");
+  }
+
+  void on_loop(uint32_t now_ms) override
+  {
+    //LOG("");
+  }
 };
+
+uint32_t cpu_sp_get();
+
+// TODO: Use 'enum class' instead of 'unsigned'
+
+extern const char * const el_functions[];
+const char * el_function_to_string(unsigned function);
+
+extern const char * const el_ranges[];
+const char * el_range_to_string(unsigned cc_range);
+
+void hex_dump(const uint8_t * data, size_t size);
+
+void pin_dump(const char * args);
+void pin_reset(const char * args);
+void pin_level(const char * args);
+void pin_mode(const char * args);
+void pin_pull(const char * args);
 
 enum class PSState {
   off,
@@ -306,6 +299,12 @@ struct Profile {
 };
 
 Profile profile;
+
+#define SCOPE_SYNC 21
+
+void scope_sync_setup();
+void scope_sync_pulse(unsigned us);
+void scope_sync_on(bool on);
 
 bool spi_chip_init();
 
@@ -940,110 +939,96 @@ static void SensorDevices_Data_report_all()
   Serial.print(". checksum="); Serial.println(checksum, HEX);
 */
 
-const char * to_string(PSState psstate) {
-  switch (psstate) {
-#define CASE_RETURN(x) case PSState::x: return #x;
-    CASE_RETURN(off);
-    CASE_RETURN(CC);
-    CASE_RETURN(CV);
-#undef CASE_RETURN
-    default: return "?";
-  }
-}
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_recurse(unsigned depth);
 
-const char * to_string(ELState elstate) {
-  switch (elstate) {
-#define CASE_RETURN(x) case ELState::x: return #x;
-    CASE_RETURN(off);
-    CASE_RETURN(CC);
-    CASE_RETURN(CV);
-#undef CASE_RETURN
-    default: return "?";
-  }
-}
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_dump(unsigned line, const char * func);
+#define STACK_DUMP() stack_dump(__LINE__, __FUNCTION__)
 
-void profile_steps(const char * args)
-{
-  //LOG("args=%p", args);
-  args = skip_whitespace(args);
-  //LOG("args=%p", args);
-  if (*args) {
-    char * endptr = NULL;
-    uint32_t new_steps_count = strtoul(args, &endptr, 0);
-    if (endptr && *endptr) {
-      LOG("ignoring '%s'", endptr);
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_dump_recursive(unsigned line, const char * func, unsigned depth);
+#define STACK_DUMP_RECURSIVE(depth) stack_dump_recursive(__LINE__, __FUNCTION__, depth)
+
+__attribute__((noinline))
+void stack_marker_fill(uint32_t * addr, size_t size, uint8_t fill);
+#define STACK_MARKER(size,fill) \
+    { \
+      uint32_t stack_marker[size/sizeof(uint32_t)]; \
+      stack_marker_fill(stack_marker, sizeof(stack_marker), fill); \
     }
-    LOG("new_steps_count=%u", new_steps_count);
-    profile.steps_count(new_steps_count);
-  }
-  LOG("profile_steps=%u", profile.steps_count_);
-}
 
-void profile_steps_dump(const char * args)
-{
-  (void) args;
-  profile.dump_steps();
-}
+extern const char device_tag[];
 
-void profile_step(const char * args)
-{
-  args = skip_whitespace(args);
-  if (!*args) {
-    LOG("format: step substeps_count period_ms EL_state EL_range EL_level");
-  } else {
-    char * endptr = NULL;
-    unsigned step = strtoul(args, &endptr, 0);
-
-    if (step >= profile.steps_count_) {
-      LOG("ERROR: step=%u >= profile.steps_count=%u", step, profile.steps_count_);
-    } else {
-      ProfileStep * profileStep = &profileSteps_[step];
-      if (endptr && *endptr) {
-        profileStep->apply(endptr);
-      }
-      profileStep->dump();
-    }
-  }
-}
-
-struct Controller
+struct Test
   : Runnable
 {
+  unsigned step_;
+  unsigned sub_step_;
+  uint32_t start_time_ms_;
+  uint32_t sub_step_end_time_ms_;
+  uint32_t spi_timeout_time_ms_;
+
+  bool run_;
+  bool abort_;
 
   enum class State {
-
-    /*
-      Check if PS and PL are present and usable.
-      Make sure they are turned off.
-    */
-    init,
-
-    /*
-      Waiting for commands from raspberry on uart #0
-    */
     idle,
-
-    /*
-      test running
-    */
-    active,
+//  init,                   // start_time_ms_ = sub_step_end_time_ms_ = now_ms;
+//  step_0,                 // step_ = 0;
+    step_init,              // 1 set PS/EL configs
+//       sub_step_0,        // sub_step_ = 0;
+         sub_step_init,     // 2 'sub_step_end_time_ms_ += measure_period_ms_;'
+         sub_step_wait,     // 3 wait for end of sub step (sub_step_end_time_ms_)
+         sub_step_measure,
+//                spi_init, // start SPI transfer to get measurements
+                  spi_wait, // 4 wait for end of SPI transfer
+         sub_step_next,     // 5 '++sub_step_ < substeps_count_ ? sub_step_init : step_next'
+    step_next,              // 6 '++step_ < steps_count_ ? step_init : cleanup'
+    abort,                  // 7 report and cleanup (deactivate PS and EL)
+    cleanup,                // 8 deactivate PS and EL
   };
-  State state = State::init;
+  State state_ = State::idle;
+  static const char * to_string(State state);
 
-  void on_ps_timeout()
+  void state(State new_state)
   {
-    LOG("");
+    const auto old_state_name = to_string(state_);
+    state_ = new_state;
+    const auto new_state_name = to_string(state_);
+    LOG("'%s' -> '%s'", old_state_name, new_state_name);
   }
 
-  void on_el_timeout()
+  void change_PS_EL_configs(const ProfileStep * profileStep);
+  void deactivate_PS_EL();
+
+  void on_loop(uint32_t now_ms) override;
+
+  void on_state_idle(uint32_t now_ms);
+  void on_state_step_init(uint32_t now_ms);
+  void on_state_sub_step_init(uint32_t now_ms);
+  void on_state_sub_step_wait(uint32_t now_ms);
+  void on_state_sub_step_measure(uint32_t now_ms);
+  void on_state_spi_wait(uint32_t now_ms);
+  void on_state_sub_step_next(uint32_t now_ms);
+  void on_state_step_next(uint32_t now_ms);
+  void on_state_abort(uint32_t now_ms);
+  void on_state_cleanup(uint32_t now_ms);
+
+  void run()
   {
-    LOG("");
+    run_ = true;
   }
 
-  void on_loop(uint32_t now_ms) override
+  void abort()
   {
-    //LOG("");
+    abort_ = true;
   }
+
+  void dump() const;
 };
 
 #define ucLOG(format, args...) LOG("%s| " format, tag, ##args)
@@ -1165,52 +1150,9 @@ struct UartConfig {
   }
 };
 
-static const UartConfig cn_uartConfig = {
-  .tag =  "CN-u" MAKE_STRING(CN_UART_NUM),
-  .hs = &Serial,
-  .baud = CN_UART_BAUD,
-  .n = 0,
-  .rxd_gpio = -1, // '-1' == 'do not change'
-  .txd_gpio = -1, // '-1' == 'do not change'
-  .rxBufferSize = 0,
-  .txBufferSize = 0x2000,
-};
+extern const UartConfig * const xx_uartConfigs[];
 
-static const UartConfig ps_uartConfig = {
-  .tag =  "PS-u" MAKE_STRING(PS_UART_NUM),
-  .hs = &Serial1,
-  .baud = PS_UART_BAUD,
-  .n = 1,
-  .rxd_gpio = PS_UART_RX_GPIO,
-  .txd_gpio = PS_UART_TX_GPIO,
-  .rxBufferSize = 0,
-  .txBufferSize = 0,
-};
-
-static const UartConfig el_uartConfig = {
-  .tag = "EL-u" MAKE_STRING(EL_UART_NUM),
-  .hs = &Serial2,
-  .baud = EL_UART_BAUD,
-  .n = 2,
-  .rxd_gpio = EL_UART_RX_GPIO,
-  .txd_gpio = EL_UART_TX_GPIO,
-  .rxBufferSize = 0,
-  .txBufferSize = 0,
-};
-
-#if 1
-static const UartConfig * const xx_uartConfigs[] = {
-  &cn_uartConfig,
-  &ps_uartConfig,
-  &el_uartConfig,
-};
-
-static void xx_uartConfigs_init() {
-  for (unsigned i = 0; i < ARRAY_SIZE(xx_uartConfigs); ++i) {
-    xx_uartConfigs[i]->init();
-  }
-}
-#endif
+void xx_uartConfigs_init();
 
 #define udLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
 struct UartDevice
@@ -1802,73 +1744,1186 @@ struct EL_Device
 
 extern EL_Device elDevice;
 
-struct Test
-  : Runnable
+const char CMD_IDENTIFY[] = "*IDN?";
+
+// u1_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
+// u1_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
+// u1_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
+// u1_lf *IDN?
+
+// u2_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
+// u2_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
+// u2_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
+// u2_lf *IDN?
+// u2_lfcr *IDN?
+// u2_cr *IDN?
+// u2_crlf *IDN?
+// u2_lf *CLS?
+
+//static
+void ux_hex(unsigned n, const char * args)
 {
-  unsigned step_;
-  unsigned sub_step_;
-  uint32_t start_time_ms_;
-  uint32_t sub_step_end_time_ms_;
-  uint32_t spi_timeout_time_ms_;
+  const UartConfig * uartConfig0 = xx_uartConfigs[0];
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  for (;;) {
+    args = skip_whitespace(args);
+    if (!*args) { break; }
+    char * endptr = NULL;
+    uint8_t xx = strtoul(args, &endptr, 0);
+    LOG(". xx='0x%02X'", xx);
 
-  bool run_;
-  bool abort_;
+    uartConfig0->write('"');
+    uartConfig0->write(xx);
+    uartConfig0->write('"');
+    uartConfig0->write('\r');
+    uartConfig0->write('\n');
 
-  enum class State {
-    idle,
-//  init,                   // start_time_ms_ = sub_step_end_time_ms_ = now_ms;
-//  step_0,                 // step_ = 0;
-    step_init,              // 1 set PS/EL configs
-//       sub_step_0,        // sub_step_ = 0;
-         sub_step_init,     // 2 'sub_step_end_time_ms_ += measure_period_ms_;'
-         sub_step_wait,     // 3 wait for end of sub step (sub_step_end_time_ms_)
-         sub_step_measure,
-//                spi_init, // start SPI transfer to get measurements
-                  spi_wait, // 4 wait for end of SPI transfer
-         sub_step_next,     // 5 '++sub_step_ < substeps_count_ ? sub_step_init : step_next'
-    step_next,              // 6 '++step_ < steps_count_ ? step_init : cleanup'
-    abort,                  // 7 report and cleanup (deactivate PS and EL)
-    cleanup,                // 8 deactivate PS and EL
-  };
-  State state_ = State::idle;
-  static const char * to_string(State state);
+    uartConfig->write(xx);
+    args = endptr;
+  }
+}
 
-  void state(State new_state)
-  {
-    const auto old_state_name = to_string(state_);
-    state_ = new_state;
-    const auto new_state_name = to_string(state_);
-    LOG("'%s' -> '%s'", old_state_name, new_state_name);
+//static
+void ux_cr(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\r');
+}
+
+void ux_crlf(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\r');
+  uartConfig->write('\n');
+}
+
+//static
+void ux_lf(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\n');
+}
+
+void ux_lfcr(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\n');
+  uartConfig->write('\r');
+}
+
+void u1_hex(const char * args) { ux_hex(1, args); }
+void u2_hex(const char * args) { ux_hex(2, args); }
+void u1_cr(const char * args) { ux_cr(1, args); }
+void u2_cr(const char * args) { ux_cr(2, args); }
+void u1_crlf(const char * args) { ux_crlf(1, args); }
+void u2_crlf(const char * args) { ux_crlf(2, args); }
+void u1_lf(const char * args) { ux_lf(1, args); }
+void u2_lf(const char * args) { ux_lf(2, args); }
+void u1_lfcr(const char * args) { ux_lfcr(1, args); }
+void u2_lfcr(const char * args) { ux_lfcr(2, args); }
+
+double command_args_to_ud(const char * args, const char ** tail)
+{
+  double v;
+  char * endptr = NULL;
+
+  args = skip_whitespace(args);
+  if (!*args) {
+    v = 0;
+  } else {
+    v = strtod(args, &endptr);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (endptr) {
+    endptr = skip_whitespace(endptr);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (tail) {
+    *tail = endptr;
+  } else if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
   }
 
-  void change_PS_EL_configs(const ProfileStep * profileStep);
-  void deactivate_PS_EL();
+  return v;
+}
 
-  void on_loop(uint32_t now_ms) override;
+unsigned long command_args_to_ul(const char * args, const char ** tail)
+{
+  unsigned v;
+  char * endptr = NULL;
 
-  void on_state_idle(uint32_t now_ms);
-  void on_state_step_init(uint32_t now_ms);
-  void on_state_sub_step_init(uint32_t now_ms);
-  void on_state_sub_step_wait(uint32_t now_ms);
-  void on_state_sub_step_measure(uint32_t now_ms);
-  void on_state_spi_wait(uint32_t now_ms);
-  void on_state_sub_step_next(uint32_t now_ms);
-  void on_state_step_next(uint32_t now_ms);
-  void on_state_abort(uint32_t now_ms);
-  void on_state_cleanup(uint32_t now_ms);
+  args = skip_whitespace(args);
+  if (!*args) {
+    v = 0;
+  } else {
+    v = strtoul(args, &endptr, 0);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
 
-  void run()
-  {
-    run_ = true;
+  if (endptr) {
+    endptr = skip_whitespace(endptr);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (tail) {
+    *tail = endptr;
+  } else if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
   }
 
-  void abort()
-  {
-    abort_ = true;
-  }
+  return v;
+}
 
-  void dump() const;
+void ux_baud(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+
+  char * endptr = NULL;
+  uint32_t baudrate = strtoul(args, &endptr, 0);
+  if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
+  }
+  LOG("setting baudrate=%u", baudrate);
+  uartConfig->baudRate(baudrate);
+  LOG("active baudrate=%u", uartConfig->baudRate());
+}
+
+void u1_baud(const char * args) { ux_baud(1, args); }
+void u2_baud(const char * args) { ux_baud(2, args); }
+
+void command_idn(const char * args)
+{
+  (void) args;
+  LOG("NubaCell BT ESP32 v.0.0 sn:1234567890");
+}
+
+static const commands_map_t commands_map[] = {
+#define CMD(x) { #x, CONSTSTRLEN(#x), x, }
+  CMD(u1_hex),
+  CMD(u2_hex),
+  CMD(u1_cr),
+  CMD(u2_cr),
+  CMD(u1_crlf),
+  CMD(u2_crlf),
+  CMD(u1_lf),
+  CMD(u2_lf),
+  CMD(u1_lfcr),
+  CMD(u2_lfcr),
+  CMD(u1_baud),
+  CMD(u2_baud),
+#undef CMD
+#define COMMAND(cmd,func) { cmd, CONSTSTRLEN(cmd), func, }
+  COMMAND("*IDN?", command_idn),
+#undef COMMAND
+#define COMMAND(cmd) { #cmd, CONSTSTRLEN(#cmd), cmd, }
+
+  COMMAND(el_id),
+  COMMAND(el_clear_errors),
+  //COMMAND(el_release_control),
+  COMMAND(el_function),
+  COMMAND(el_input),
+
+  COMMAND(el_cc_range),
+  COMMAND(el_cv_range),
+  COMMAND(el_cc_level),
+  COMMAND(el_cv_level),
+
+  COMMAND(profile_steps),
+  COMMAND(profile_steps_dump),
+  COMMAND(profile_step),
+
+  COMMAND(test_run),
+  COMMAND(test_abort),
+  COMMAND(test_dump),
+
+  COMMAND(spi_run),
+  COMMAND(spi_stats),
+
+  COMMAND(ps_id),
+  COMMAND(ps_v),
+  COMMAND(ps_c),
+  COMMAND(ps_ovp),
+  COMMAND(ps_ocp),
+  COMMAND(ps_output),
+
+  COMMAND(scope_sync_on),
+  COMMAND(scope_sync_off),
+  COMMAND(scope_sync_pulse),
+
+  COMMAND(pin_dump),
+  COMMAND(pin_reset),
+  COMMAND(pin_level),
+  COMMAND(pin_mode),
+  COMMAND(pin_pull),
+#undef COMMAND
 };
+
+static
+void
+print_commands(
+    const commands_map_t * commands_map,
+    size_t commands_count)
+{
+  LOG("Available commands:");
+  for (unsigned i = 0; i < commands_count; ++i) {
+    LOG(". %s", commands_map[i].command_s);
+  }
+}
+
+void print_commands()
+{
+  print_commands(commands_map, ARRAY_SIZE(commands_map));
+}
+
+static
+command_fn_t
+command_s_to_fn(
+    const commands_map_t * commands_map,
+    size_t commands_count,
+    const char * command_s,
+    size_t command_len)
+{
+  for (unsigned i = 0; i < commands_count; ++i) {
+    if (commands_map[i].command_len == command_len
+    && !strncmp(command_s, commands_map[i].command_s, command_len)) {
+      return commands_map[i].command_fn;
+    }
+  }
+  return NULL;
+}
+
+command_fn_t
+command_s_to_fn(
+    const char * command_s,
+    size_t command_len)
+{
+  return command_s_to_fn(
+      commands_map, ARRAY_SIZE(commands_map),
+      command_s, command_len);
+}
+
+Controller controller;
+
+uint32_t cpu_sp_get()
+{
+  register uint32_t rsp asm("sp");
+  return rsp;
+}
+
+// TODO: Use 'enum class' instead of 'unsigned'
+
+const char * const el_functions[] = { "CC", "CV", };
+
+const char * el_function_to_string(unsigned function)
+{
+  return el_functions[function];
+}
+
+
+const char * const el_ranges[] = { "HIGH", "LOW", "MID", };
+
+const char * el_range_to_string(unsigned cc_range)
+{
+  return el_ranges[cc_range];
+}
+
+static char nibble_hex(uint8_t b)
+{
+  uint8_t n = b & 0x0F;
+  return (n < 10) ? '0' + n : 'A' - 10 + n;
+}
+
+static void hex_dump_byte(char * p, uint8_t b)
+{
+  p[0] = nibble_hex(b >> 4);
+  p[1] = nibble_hex(b);
+}
+
+static char make_printable(uint8_t b)
+{
+  b &= 0x7F;
+  return (b < 0x20 || b >= 0x7F) ? '.' : b;
+}
+
+void hex_dump_line(
+    char * hex_s, size_t hex_s_size,
+    char * char_s, size_t char_s_size,
+    const uint8_t * data, size_t size)
+{
+  memset(hex_s, ' ', hex_s_size - 1);
+  hex_s[hex_s_size - 1] = '\0';
+  memset(char_s, ' ', char_s_size - 1);
+  char_s[char_s_size - 1] = '\0';
+  for (unsigned gi = 0; gi < 4; ++gi) {
+    for(unsigned bi = 0; bi < 4; ++bi) {
+      unsigned di = gi * 4 + bi;
+      unsigned hex_s_i = gi * (2 + 4*2+3) + bi * (2+1);
+      unsigned char_s_i = gi * (1 + 4) + bi;
+      if (di < size) {
+        uint8_t d = data[di];
+        hex_dump_byte(&hex_s[hex_s_i], d);
+        char_s[char_s_i] = make_printable(d);
+      } else {
+        hex_s[hex_s_i  ] = '.';
+        hex_s[hex_s_i+1] = '.';
+        char_s[char_s_i] = '.';
+      }
+    }
+  }
+}
+
+// "XXXXXXXX/XXX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XXXX XXXX XXXX XXXX"
+void hex_dump(const uint8_t * data, size_t size)
+{
+  //LOG("data=%p size=%zu", data, size);
+  static
+  char s[sizeof("XXXXXXXX/XXX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XXXX XXXX XXXX XXXX")];
+  for (uint32_t offs = 0; offs < size; offs += 16) {
+    const uint8_t * addr = data + offs;
+    static
+    char hex_s[sizeof("XX XX XX XX  XX XX XX XX  XX XX XX XX  XX XX XX XX")];
+    static
+    char char_s[sizeof("XXXX XXXX XXXX XXXX")];
+    size_t left = size - offs;
+    hex_dump_line(hex_s, sizeof(hex_s), char_s, sizeof(char_s), addr, left);
+    //LOG("hex_s='%s'", hex_s);
+    //LOG("char_s='%s'", char_s);
+    snprintf(s, sizeof(s), "%08X/%03X  %s  %s", addr, offs, hex_s, char_s);
+    Serial.print(". . ");
+    Serial.println(s);
+  }
+}
+
+void log(const char *file, unsigned line, const char * function, const char * format, ...)
+{
+  va_list argsList;
+  va_start(argsList, format);
+
+  constexpr size_t buffer_size = 128;
+  //static
+  char buffer[buffer_size];
+  const int vsnprintf_r = vsnprintf(buffer, sizeof(buffer), format, argsList);
+  log_write(line, function, buffer);
+
+  va_end(argsList);
+
+  if (vsnprintf_r < 0) {
+    const int snprintf_r = snprintf(buffer, sizeof(buffer),
+        "ALERT: '%s()' failure, errno=%i", "vsnprintf", errno);
+    if (snprintf_r < 0) {
+      log_write(__LINE__, __FUNCTION__, "ALERT: 'snprintf()' failure");
+    } else {
+      log_write(__LINE__, __FUNCTION__, buffer);
+    }
+  } else {
+    const size_t output_length = (size_t) vsnprintf_r;
+    const size_t needed_size = output_length + 1; // add space for terminating '\0'
+    if (buffer_size < needed_size) {
+      const int snprintf_r = snprintf(buffer, sizeof(buffer),
+          "ALERT: logger buffer overflow (needed=%zu available=%zu)",
+          needed_size, sizeof(buffer));
+      if (snprintf_r < 0) {
+        log_write(__LINE__, __FUNCTION__, "ALERT: 'snprintf()' failure");
+      } else {
+        log_write(__LINE__, __FUNCTION__, buffer);
+      }
+    }
+  }
+}
+
+static void log_write(unsigned line, const char * function, const char * s)
+{
+  const auto ms = millis();
+  Serial.print(ms);
+  Serial.print(" ");
+  Serial.print(function);
+  Serial.print(":");
+  Serial.print(line);
+  Serial.print("| ");
+
+  Serial.println(s);
+}
+
+void pin_dump(const char * args)
+{
+  unsigned pin = command_args_to_ul(args, nullptr);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+  gpio_dump_io_configuration(stdout, (1ULL << pin));
+}
+
+/*
+    esp_err_t gpio_reset_pin(gpio_num_t gpio_num)
+
+      gpio_intr_disable(gpio_num);
+      gpio_pullup_en(gpio_num);
+      gpio_pulldown_dis(gpio_num);
+      gpio_input_disable(gpio_num);
+      gpio_output_disable(gpio_num);
+      gpio_hal_func_sel(gpio_context.gpio_hal, gpio_num, PIN_FUNC_GPIO);
+
+*/
+void pin_reset(const char * args)
+{
+  unsigned pin = command_args_to_ul(args, nullptr);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+  if (ESP_OK != gpio_reset_pin(gpio_num_t(pin))) {
+    LOG("ERROR: %s(pin=%u)", "gpio_reset_pin", pin);
+  }
+}
+
+/*
+    int gpio_get_level(gpio_num_t gpio_num);
+    esp_err_t gpio_set_level(gpio_num_t gpio_num, uint32_t level);
+
+      level Output level. 0: low ; 1: high
+*/
+void pin_level(const char * args)
+{
+  const char * tail = NULL;
+  unsigned pin = command_args_to_ul(args, &tail);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+
+  if (tail && *tail) {
+    unsigned v = command_args_to_ul(tail, nullptr);
+    LOG(". setting pin=%u level=%u", pin, v);
+    if (ESP_OK != gpio_set_level(gpio_num_t(pin), v)) {
+      LOG("ERROR: %s(pin=%u)", "gpio_set_level", pin);
+    }
+  }
+
+  LOG("%s(pin=%u)=%u", "gpio_get_level", pin, gpio_get_level(gpio_num_t(pin)));
+}
+
+/*
+    esp_err_t gpio_set_direction(gpio_num_t gpio_num, gpio_mode_t mode);
+
+    gpio_mode_t
+
+      GPIO_MODE_DISABLE
+      GPIO_MODE_INPUT                   // (1<<0)
+      GPIO_MODE_OUTPUT                  //          (1<<1)
+      GPIO_MODE_OUTPUT_OD               //          (1<<1) | (1<<2)
+      GPIO_MODE_INPUT_OUTPUT            // (1<<0) | (1<<1)
+      GPIO_MODE_INPUT_OUTPUT_OD         // (1<<0) | (1<<1) | (1<<2)
+
+    if (mode & GPIO_MODE_DEF_INPUT ) { gpio_input_enable(gpio_num);  } else { gpio_input_disable(gpio_num); }
+    if (mode & GPIO_MODE_DEF_OUTPUT) { gpio_output_enable(gpio_num); } else { gpio_output_disable(gpio_num); }
+    if (mode & GPIO_MODE_DEF_OD    ) { gpio_od_enable(gpio_num);     } else { gpio_od_disable(gpio_num); }
+
+*/
+static const struct {
+  gpio_mode_t mode;
+  const char * name;
+} pin_modes[] = {
+#define MODE(x) { GPIO_MODE_##x, #x }
+  MODE(DISABLE),
+  MODE(INPUT),
+  MODE(OUTPUT),
+  MODE(OUTPUT_OD),
+  MODE(INPUT_OUTPUT_OD),
+  MODE(INPUT_OUTPUT),
+#undef MODE
+};
+
+static void pin_modes_list()
+{
+  for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
+    LOG(". %u %s", pin_modes[i].mode, pin_modes[i].name);
+  }
+}
+
+void pin_mode(const char * args)
+{
+  const char * tail = NULL;
+  unsigned pin = command_args_to_ul(args, &tail);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+
+  if (tail && *tail) {
+    LOG("tail='%s'", tail);
+    for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
+      if (!strcasecmp(tail, pin_modes[i].name)) {
+        LOG(". setting mode %u %s", pin_modes[i].mode, pin_modes[i].name);
+        const auto mode = pin_modes[i].mode;
+        if (ESP_OK != gpio_set_direction(gpio_num_t(pin), mode)) {
+          LOG("ERROR: %s(pin=%u, mode=%u)", "gpio_set_direction", pin, mode);
+        }
+        return;
+      }
+    }
+    unsigned v = command_args_to_ul(tail, nullptr);
+    for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
+      if (pin_modes[i].mode == v) {
+        LOG(". setting mode %u %s", pin_modes[i].mode, pin_modes[i].name);
+        const auto mode = pin_modes[i].mode;
+        if (ESP_OK != gpio_set_direction(gpio_num_t(pin), mode)) {
+          LOG("ERROR: %s(pin=%u, mode=%u)", "gpio_set_direction", pin, mode);
+        }
+        return;
+      }
+    }
+  }
+
+  LOG("pin modes:");
+  pin_modes_list();
+}
+
+/*
+    esp_err_t gpio_set_pull_mode(gpio_num_t gpio_num, gpio_pull_mode_t pull);
+
+      gpio_pull_mode_t
+
+        GPIO_PULLUP_ONLY,               // Pad pull up
+        GPIO_PULLDOWN_ONLY,             // Pad pull down
+        GPIO_PULLUP_PULLDOWN,           // Pad pull up + pull down
+        GPIO_FLOATING,                  // Pad floating
+*/
+
+static const struct {
+  const char * name;
+  gpio_pull_mode_t pull;
+} pin_pulls[] = {
+#define PULL(n, e) { n, GPIO_##e }
+  PULL("UP"  , PULLUP_ONLY),
+  PULL("DOWN", PULLDOWN_ONLY),
+  PULL("BOTH", PULLUP_PULLDOWN),
+  PULL("NONE", FLOATING),
+#undef MODE
+};
+
+static void pin_pulls_list()
+{
+  for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
+    LOG(". %u %s", pin_pulls[i].pull, pin_pulls[i].name);
+  }
+}
+
+void pin_pull(const char * args)
+{
+  const char * tail = NULL;
+  unsigned pin = command_args_to_ul(args, &tail);
+  if (pin >= GPIO_NUM_MAX) {
+    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
+    return;
+  }
+
+  if (tail && *tail) {
+    LOG("tail='%s'", tail);
+    for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
+      if (!strcasecmp(tail, pin_pulls[i].name)) {
+        LOG(". setting pull %u %s", pin_pulls[i].pull, pin_pulls[i].name);
+        const auto pull = pin_pulls[i].pull;
+        if (ESP_OK != gpio_set_pull_mode(gpio_num_t(pin), pull)) {
+          LOG("ERROR: %s(pin=%u, pull=%u)", "gpio_set_pull_mode", pin, pull);
+        }
+        return;
+      }
+    }
+    unsigned v = command_args_to_ul(tail, nullptr);
+    for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
+      if (pin_pulls[i].pull == v) {
+        LOG(". setting pull %u %s", pin_pulls[i].pull, pin_pulls[i].name);
+        const auto pull = pin_pulls[i].pull;
+        if (ESP_OK != gpio_set_pull_mode(gpio_num_t(pin), pull)) {
+          LOG("ERROR: %s(pin=%u, pull=%u)", "gpio_set_pull_mode", pin, pull);
+        }
+        return;
+      }
+    }
+  }
+
+  LOG("pin pulls:");
+  pin_pulls_list();
+}
+
+/*
+    esp_err_t gpio_input_enable(gpio_num_t gpio_num);
+    esp_err_t gpio_output_enable(gpio_num_t gpio_num);
+    esp_err_t gpio_output_disable(gpio_num_t gpio_num);
+    esp_err_t gpio_od_disable(gpio_num_t gpio_num)
+    esp_err_t gpio_od_enable(gpio_num_t gpio_num)
+
+    'gpio_input_disable' exists but is inaccessible due to 'static':
+    static esp_err_t gpio_input_disable(gpio_num_t gpio_num)
+*/
+
+const char * to_string(PSState psstate) {
+  switch (psstate) {
+#define CASE_RETURN(x) case PSState::x: return #x;
+    CASE_RETURN(off);
+    CASE_RETURN(CC);
+    CASE_RETURN(CV);
+#undef CASE_RETURN
+    default: return "?";
+  }
+}
+
+const char * to_string(ELState elstate) {
+  switch (elstate) {
+#define CASE_RETURN(x) case ELState::x: return #x;
+    CASE_RETURN(off);
+    CASE_RETURN(CC);
+    CASE_RETURN(CV);
+#undef CASE_RETURN
+    default: return "?";
+  }
+}
+
+void profile_steps(const char * args)
+{
+  //LOG("args=%p", args);
+  args = skip_whitespace(args);
+  //LOG("args=%p", args);
+  if (*args) {
+    char * endptr = NULL;
+    uint32_t new_steps_count = strtoul(args, &endptr, 0);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    LOG("new_steps_count=%u", new_steps_count);
+    profile.steps_count(new_steps_count);
+  }
+  LOG("profile_steps=%u", profile.steps_count_);
+}
+
+void profile_steps_dump(const char * args)
+{
+  (void) args;
+  profile.dump_steps();
+}
+
+void profile_step(const char * args)
+{
+  args = skip_whitespace(args);
+  if (!*args) {
+    LOG("format: step substeps_count period_ms EL_state EL_range EL_level");
+  } else {
+    char * endptr = NULL;
+    unsigned step = strtoul(args, &endptr, 0);
+
+    if (step >= profile.steps_count_) {
+      LOG("ERROR: step=%u >= profile.steps_count=%u", step, profile.steps_count_);
+    } else {
+      ProfileStep * profileStep = &profileSteps_[step];
+      if (endptr && *endptr) {
+        profileStep->apply(endptr);
+      }
+      profileStep->dump();
+    }
+  }
+}
+
+static void report_config()
+{
+  Serial.print("device: '"); Serial.print(device_tag); Serial.println("'");
+  spi_report_config();
+}
+
+void scope_sync_setup()
+{
+  LOG("");
+#if 1
+  gpio_set_level(gpio_num_t(SCOPE_SYNC), 1);
+  gpio_set_direction(gpio_num_t(SCOPE_SYNC), GPIO_MODE_INPUT_OUTPUT);
+#else
+  digitalWrite(SCOPE_SYNC, HIGH);
+  pinMode(SCOPE_SYNC, OUTPUT);
+#endif
+}
+
+void scope_sync_on(bool on)
+{
+#if 1
+  gpio_set_level(gpio_num_t(SCOPE_SYNC), !on);
+#else
+  digitalWrite(SCOPE_SYNC, (on) ? LOW : HIGH);
+#endif
+}
+
+void scope_sync_pulse(unsigned us)
+{
+  scope_sync_on(true);
+  if (us) { const auto us0 = esp_timer_get_time(); while ((esp_timer_get_time() - us0) < us) {} }
+  scope_sync_on(false);
+}
+
+void scope_sync_on(const char * args)
+{
+  (void) args;
+  LOG("");
+  scope_sync_on(true);
+}
+
+void scope_sync_off(const char * args)
+{
+  (void) args;
+  LOG("");
+  scope_sync_on(false);
+}
+
+void scope_sync_pulse(const char * args)
+{
+  unsigned us = command_args_to_ul(args, nullptr);
+  LOG("us=%u", us);
+  scope_sync_pulse(us);
+}
+
+#if 0
+void serial_setup()
+{
+  //Serial.begin(115200);
+  xx_uartConfigs_init();
+  LOG_FUNCTION
+  LOG("uxTaskPriorityGet()=%i", uxTaskPriorityGet(NULL));
+
+  LOG_FUNCTION
+
+#if 0
+  Serial.println(ps_uart_cfg.tag);
+  xx_uart_cfg_hw_dump(&ps_uart_cfg);
+  Serial.println(pl_uart_cfg.tag);
+  xx_uart_cfg_hw_dump(&pl_uart_cfg);
+  LOG_FUNCTION
+#endif
+}
+#endif
+
+const char * skip_whitespace(const char * p)
+{
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  while (' ' == *p || '\t' == *p) {
+    ++p;
+    //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  }
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  return p;
+}
+
+char * skip_whitespace(char * p)
+{
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  while (' ' == *p || '\t' == *p) {
+    ++p;
+    //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  }
+  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  return p;
+}
+
+uint32_t regs_[8];
+//__attribute__((noinline))
+__attribute__((noipa))
+void save_regs(
+    uint32_t r0,
+    uint32_t r1,
+    uint32_t r2,
+    uint32_t r3,
+    uint32_t r4,
+    uint32_t r5)
+{
+  regs_[ 0] = r0;
+  regs_[ 1] = r1;
+  regs_[ 2] = r2;
+  regs_[ 3] = r3;
+  regs_[ 4] = r4;
+  regs_[ 5] = r5;
+}
+
+unsigned stack_recurse_count_;
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_recurse(unsigned depth)
+{
+  asm volatile ("");
+  STACK_MARKER(16, '1');
+  if (depth) {
+    stack_recurse(depth - 1);
+  }
+#if 1
+  {
+    save_regs(
+        cpu_sp_get() & 0xFFFFFF00,
+        1,
+        2,
+        3,
+        4,
+        5);
+  }
+  ++stack_recurse_count_;
+#endif
+}
+
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_dump_recursive(unsigned line, const char * func, unsigned depth)
+{
+  asm volatile ("");
+  STACK_MARKER(16, '2');
+  stack_recurse(4);
+  //const void * p = &p;
+  //LOG("_ %u:%s p=%p", line, func, p);
+  //LOG("_ %u:%s sp=%p p=%p", line, func, cpu_sp_get(), p);
+  LOG("_ %u:%s sp=%p", line, func, cpu_sp_get());
+  if (depth) {
+    stack_dump_recursive(line, func, depth - 1);
+  } else {
+    stack_dump(line, func);
+  }
+  ++stack_recurse_count_;
+}
+
+//__attribute__((noinline))
+__attribute__((noipa))
+void stack_dump(unsigned line, const char * func)
+{
+  asm volatile ("");
+  STACK_MARKER(16, '3');
+  //stack_recurse(4);
+  //const void * p = &p;
+  //LOG("_ %u:%s p=%p", line, func, p);
+  //LOG("_ %u:%s sp=%p p=%p", line, func, cpu_sp_get(), p);
+  LOG("_ %u:%s sp=%p", line, func, cpu_sp_get());
+  //hex_dump((const uint8_t*)p, 256);
+  //hex_dump( ((const uint8_t*)p) - 32, 256);
+  hex_dump( ((const uint8_t*)cpu_sp_get()) - 256, 256*3);
+}
+
+__attribute__((noinline))
+void stack_marker_fill(uint32_t * addr, size_t size, uint8_t fill)
+{
+  memset(addr, fill, size);
+  if (size >= sizeof(uint32_t)) {
+    *addr = uint32_t(addr);
+  }
+}
+
+const char device_tag[] = "esp32";
+
+void Test::on_state_idle(uint32_t now_ms)
+{
+  if (run_) {
+    run_ = false;
+    abort_ = false;
+
+    if (!profile.steps_count_) {
+      LOG("ERROR: profile is empty");
+      state(State::idle);
+    } else {
+
+      // --- 'test_init' ---
+
+      // timings for all measurement sub steps will be based on 'test_start'
+      // time
+      start_time_ms_ = sub_step_end_time_ms_ = now_ms;
+
+      // --- 'step_0' ---
+      step_ = 0;
+
+      state(State::step_init);
+    }
+  }
+}
+
+void Test::on_state_step_init(uint32_t now_ms)
+{
+  // --- 'step_init' ---
+
+  const ProfileStep * profileStep = &profileSteps_[step_];
+
+  // set PS/EL configs
+  change_PS_EL_configs(profileStep);
+
+  // --- 'sub_step_0' ---
+  sub_step_ = 0;
+
+  state(State::sub_step_init);
+}
+
+/*
+    if !substeps_count_ skip waiting and jump directly to 'sub_step_measure'.
+
+    '!substeps_count_' can be useful to do measurements at the beginning of the
+    test immediately after changing PS and EL configs.
+
+    if !measure_period_ms_ then next '*_sub_step_end' will be quickly executed
+    just after few 'on_loop'.
+
+    '!measure_period_ms_' can be useful to do multiple repeated measurementsat
+    the beginning of the test immediately after changing PS and EL configs.
+*/
+
+void Test::on_state_sub_step_init(uint32_t now_ms)
+{
+  // --- 'sub_step_init' ---
+
+  const ProfileStep * profileStep = &profileSteps_[step_];
+  if (profileStep->substeps_count_) {
+    sub_step_end_time_ms_ += profileStep->measure_period_ms_;
+    LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
+    state(State::sub_step_wait);
+  } else {
+    state(State::sub_step_measure);
+  }
+}
+
+// Long running state. Check for user's abort request.
+
+// 'sub_step_wait'
+void Test::on_state_sub_step_wait(uint32_t now_ms)
+{
+  if (abort_) {
+    state(State::abort);
+  } else
+  if (sub_step_end_time_ms_ <= now_ms) {
+    // --- 'sub_step_end' ---
+    LOG("--- sub_step_=%u finished -- do measurements...", sub_step_);
+    state(State::sub_step_measure);
+  }
+}
+
+// 'sub_step_measure'
+void Test::on_state_sub_step_measure(uint32_t now_ms)
+{
+  // --- 'sub_step_measure' ---
+
+  // --- 'spi_init' ---
+  // FIXME: Use correct 'spi_timeout_ms'
+  constexpr uint32_t spi_timeout_ms = 50;
+  //constexpr uint32_t spi_timeout_ms = 5;
+  spi_timeout_time_ms_ = now_ms + spi_timeout_ms;
+  LOG(". spi_timeout_time_ms_=%u", spi_timeout_time_ms_);
+  spiDevice.run();
+  state(State::spi_wait);
+}
+
+// Long running state. Check for user's abort request.
+
+// 'spi_wait'
+void Test::on_state_spi_wait(uint32_t now_ms)
+{
+  if (abort_) {
+    state(State::abort);
+  } else
+  if (spiDevice.isTransferFinished()) {
+    //LOG("'transferFinished'");
+
+    // --- 'spi transfer end' ---
+
+    // FIXME: temporarily changed '!' to '!!' while SPI is disconnected
+    if (!!spiDevice.areSensorsDataValid()) {
+      LOG("ERROR: received sensors' data are invalid");
+      state(State::abort);
+    } else {
+      // report sensors' data
+      SensorDevices_Data_report_all();
+
+      // start next sub step
+      state(State::sub_step_next);
+
+    }
+  } else
+  if (spi_timeout_time_ms_ <= now_ms) {
+    LOG("ERROR: sensors' data SPI transfer timeout");
+    state(State::abort);
+  }
+}
+
+void Test::on_state_sub_step_next(uint32_t now_ms)
+{
+  // 'sub_step_next'
+
+  const ProfileStep * profileStep = &profileSteps_[step_];
+  ++sub_step_;
+  LOG(". sub_step_=%u", sub_step_);
+  if (sub_step_ < profileStep->substeps_count_) {
+    sub_step_end_time_ms_ += profileStep->measure_period_ms_;
+    state(State::sub_step_init);
+  } else {
+    LOG("--- step_=%u finished -- start next step (change PS and EL configs) ...", step_);
+    state(State::step_next);
+  }
+}
+
+void Test::on_state_step_next(uint32_t now_ms)
+{
+  // --- 'step_next' ---
+  ++step_;
+  LOG(". step_=%u", step_);
+  if (step_ < profile.steps_count_) {
+    state(State::step_init);
+  } else {
+    state(State::cleanup);
+  }
+}
+
+// abort test execution.
+// Reached on user's request or on critical condition detection.
+
+void Test::on_state_abort(uint32_t now_ms)
+{
+  abort_ = false;
+  LOG("test execution aborted");
+  state(State::cleanup);
+}
+
+void Test::on_state_cleanup(uint32_t now_ms)
+{
+  // --- 'cleanup' ---
+  deactivate_PS_EL();
+  LOG("--- test finished ---");
+  state(State::idle);
+}
+
+Test test;
+
+const char * Test::to_string(State state)
+{
+  static const char * const state_names[] = {
+    "idle",
+    "step_init",
+    "sub_step_init",
+    "sub_step_wait",
+    "sub_step_measure",
+    "spi_wait",
+    "sub_step_next",
+    "step_next",
+    "abort",
+    "cleanup",
+  };
+  const auto i = unsigned(state);
+  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
+}
+
+void test_run(const char * args)
+{
+  (void) args;
+  test.run();
+}
+
+void test_abort(const char * args)
+{
+  (void) args;
+  test.abort();
+}
+
+void Test::dump() const
+{
+  hex_dump( (const uint8_t*)this, sizeof(*this));
+  LOG("step=%u sub_step=%u start_time_ms=%u sub_step_end_time_ms=%u"
+      " spi_timeout_time_ms=%u run=%i abort=%i state=%u/%s",
+      step_, sub_step_, start_time_ms_, sub_step_end_time_ms_,
+      spi_timeout_time_ms_, run_, abort_, state_, to_string(state_));
+}
+
+void test_dump(const char * args)
+{
+  test.dump();
+}
+
+void Test::change_PS_EL_configs(const ProfileStep * profileStep)
+{
+  if (ELState::off == profileStep->elconfig_.state_) {
+    LOG("deactivating EL");
+    elDevice.set_input_OFF();
+  } else if (ELState::CC == profileStep->elconfig_.state_) {
+    LOG("changing EL config");
+    elDevice.cc_range(profileStep->elconfig_.range_);
+    elDevice.cc_level(profileStep->elconfig_.level_);
+    elDevice.cc_level();
+    elDevice.set_input_ON();
+  } else {
+    LOG("ERROR: Unexpected EL state");
+  }
+}
+
+void Test::deactivate_PS_EL()
+{
+  LOG("deactivating EL");
+  elDevice.set_input_OFF();
+}
+
+void Test::on_loop(uint32_t now_ms)
+{
+  switch (state_) {
+#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
+    CASE_CALL(idle)
+    CASE_CALL(step_init)
+    CASE_CALL(sub_step_init)
+    CASE_CALL(sub_step_wait)
+    CASE_CALL(sub_step_measure)
+    CASE_CALL(spi_wait)
+    CASE_CALL(sub_step_next)
+    CASE_CALL(step_next)
+    CASE_CALL(abort)
+    CASE_CALL(cleanup)
+#undef CASE_CALL
+    default:
+      LOG("Unexpected state=%u/'%s'", state_, to_string(state_));
+      break;
+  }
+}
+
+static const UartConfig cn_uartConfig = {
+  .tag =  "CN-u" MAKE_STRING(CN_UART_NUM),
+  .hs = &Serial,
+  .baud = CN_UART_BAUD,
+  .n = 0,
+  .rxd_gpio = -1, // '-1' == 'do not change'
+  .txd_gpio = -1, // '-1' == 'do not change'
+  .rxBufferSize = 0,
+  .txBufferSize = 0x2000,
+};
+
+static const UartConfig ps_uartConfig = {
+  .tag =  "PS-u" MAKE_STRING(PS_UART_NUM),
+  .hs = &Serial1,
+  .baud = PS_UART_BAUD,
+  .n = 1,
+  .rxd_gpio = PS_UART_RX_GPIO,
+  .txd_gpio = PS_UART_TX_GPIO,
+  .rxBufferSize = 0,
+  .txBufferSize = 0,
+};
+
+static const UartConfig el_uartConfig = {
+  .tag = "EL-u" MAKE_STRING(EL_UART_NUM),
+  .hs = &Serial2,
+  .baud = EL_UART_BAUD,
+  .n = 2,
+  .rxd_gpio = EL_UART_RX_GPIO,
+  .txd_gpio = EL_UART_TX_GPIO,
+  .rxBufferSize = 0,
+  .txBufferSize = 0,
+};
+
+const UartConfig * const xx_uartConfigs[] = {
+  &cn_uartConfig,
+  &ps_uartConfig,
+  &el_uartConfig,
+};
+
+void xx_uartConfigs_init() {
+  for (unsigned i = 0; i < ARRAY_SIZE(xx_uartConfigs); ++i) {
+    xx_uartConfigs[i]->init();
+  }
+}
 
 void PS_Device::v() const
 {
@@ -2175,630 +3230,6 @@ static void uartDevices_on_loop(int32_t now_ms) {
   }
 }
 
-Controller controller;
-
-void Test::on_state_idle(uint32_t now_ms)
-{
-  if (run_) {
-    run_ = false;
-    abort_ = false;
-
-    if (!profile.steps_count_) {
-      LOG("ERROR: profile is empty");
-      state(State::idle);
-    } else {
-
-      // --- 'test_init' ---
-
-      // timings for all measurement sub steps will be based on 'test_start'
-      // time
-      start_time_ms_ = sub_step_end_time_ms_ = now_ms;
-
-      // --- 'step_0' ---
-      step_ = 0;
-
-      state(State::step_init);
-    }
-  }
-}
-
-void Test::on_state_step_init(uint32_t now_ms)
-{
-  // --- 'step_init' ---
-
-  const ProfileStep * profileStep = &profileSteps_[step_];
-
-  // set PS/EL configs
-  change_PS_EL_configs(profileStep);
-
-  // --- 'sub_step_0' ---
-  sub_step_ = 0;
-
-  state(State::sub_step_init);
-}
-
-/*
-    if !substeps_count_ skip waiting and jump directly to 'sub_step_measure'.
-
-    '!substeps_count_' can be useful to do measurements at the beginning of the
-    test immediately after changing PS and EL configs.
-
-    if !measure_period_ms_ then next '*_sub_step_end' will be quickly executed
-    just after few 'on_loop'.
-
-    '!measure_period_ms_' can be useful to do multiple repeated measurementsat
-    the beginning of the test immediately after changing PS and EL configs.
-*/
-
-void Test::on_state_sub_step_init(uint32_t now_ms)
-{
-  // --- 'sub_step_init' ---
-
-  const ProfileStep * profileStep = &profileSteps_[step_];
-  if (profileStep->substeps_count_) {
-    sub_step_end_time_ms_ += profileStep->measure_period_ms_;
-    LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
-    state(State::sub_step_wait);
-  } else {
-    state(State::sub_step_measure);
-  }
-}
-
-// Long running state. Check for user's abort request.
-
-// 'sub_step_wait'
-void Test::on_state_sub_step_wait(uint32_t now_ms)
-{
-  if (abort_) {
-    state(State::abort);
-  } else
-  if (sub_step_end_time_ms_ <= now_ms) {
-
-    // --- 'sub_step_end' ---
-    LOG("--- sub_step_=%u finished -- do measurements...", sub_step_);
-
-    // --- 'step_measure' ---
-
-    // --- 'spi_init' ---
-    // FIXME: Use correct 'spi_timeout_ms'
-    constexpr uint32_t spi_timeout_ms = 50;
-    //constexpr uint32_t spi_timeout_ms = 5;
-    spi_timeout_time_ms_ = now_ms + spi_timeout_ms;
-    LOG(". spi_timeout_time_ms_=%u", spi_timeout_time_ms_);
-    spiDevice.run();
-    state(State::spi_wait);
-
-  }
-}
-
-// 'sub_step_measure'
-void Test::on_state_sub_step_measure(uint32_t now_ms)
-{
-  // --- 'sub_step_measure' ---
-
-  // --- 'spi_init' ---
-  // FIXME: Use correct 'spi_timeout_ms'
-  constexpr uint32_t spi_timeout_ms = 50;
-  //constexpr uint32_t spi_timeout_ms = 5;
-  spi_timeout_time_ms_ = now_ms + spi_timeout_ms;
-  LOG(". spi_timeout_time_ms_=%u", spi_timeout_time_ms_);
-  spiDevice.run();
-  state(State::spi_wait);
-}
-
-// Long running state. Check for user's abort request.
-
-// 'spi_wait'
-void Test::on_state_spi_wait(uint32_t now_ms)
-{
-  if (abort_) {
-    state(State::abort);
-  } else
-  if (spiDevice.isTransferFinished()) {
-    //LOG("'transferFinished'");
-
-    // --- 'spi transfer end' ---
-
-    // FIXME: temporarily changed '!' to '!!' while SPI is disconnected
-    if (!!spiDevice.areSensorsDataValid()) {
-      LOG("ERROR: received sensors' data are invalid");
-      state(State::abort);
-    } else {
-      // report sensors' data
-      SensorDevices_Data_report_all();
-
-      // start next sub step
-      state(State::sub_step_next);
-
-    }
-  } else
-  if (spi_timeout_time_ms_ <= now_ms) {
-    LOG("ERROR: sensors' data SPI transfer timeout");
-    state(State::abort);
-  }
-}
-
-void Test::on_state_sub_step_next(uint32_t now_ms)
-{
-  // 'sub_step_next'
-
-  const ProfileStep * profileStep = &profileSteps_[step_];
-  ++sub_step_;
-  LOG(". sub_step_=%u", sub_step_);
-  if (sub_step_ < profileStep->substeps_count_) {
-    sub_step_end_time_ms_ += profileStep->measure_period_ms_;
-    state(State::sub_step_init);
-  } else {
-    LOG("--- step_=%u finished -- start next step (change PS and EL configs) ...", step_);
-    state(State::step_next);
-  }
-}
-
-void Test::on_state_step_next(uint32_t now_ms)
-{
-  // --- 'step_next' ---
-  ++step_;
-  LOG(". step_=%u", step_);
-  if (step_ < profile.steps_count_) {
-    state(State::step_init);
-  } else {
-    state(State::cleanup);
-  }
-}
-
-// abort test execution.
-// Reached on user's request or on critical condition detection.
-
-void Test::on_state_abort(uint32_t now_ms)
-{
-  abort_ = false;
-  LOG("test execution aborted");
-  state(State::cleanup);
-}
-
-void Test::on_state_cleanup(uint32_t now_ms)
-{
-  // --- 'cleanup' ---
-  deactivate_PS_EL();
-  LOG("--- test finished ---");
-  state(State::idle);
-}
-
-Test test;
-
-const char * Test::to_string(State state)
-{
-  static const char * const state_names[] = {
-    "idle",
-    "step_init",
-    "sub_step_init",
-    "sub_step_wait",
-    "sub_step_measure",
-    "spi_wait",
-    "sub_step_next",
-    "step_next",
-    "abort",
-    "cleanup",
-  };
-  const auto i = unsigned(state);
-  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
-}
-
-void test_run(const char * args)
-{
-  (void) args;
-  test.run();
-}
-
-void test_abort(const char * args)
-{
-  (void) args;
-  test.abort();
-}
-
-void Test::dump() const
-{
-  hex_dump( (const uint8_t*)this, sizeof(*this));
-  LOG("step=%u sub_step=%u start_time_ms=%u sub_step_end_time_ms=%u"
-      " spi_timeout_time_ms=%u run=%i abort=%i state=%u/%s",
-      step_, sub_step_, start_time_ms_, sub_step_end_time_ms_,
-      spi_timeout_time_ms_, run_, abort_, state_, to_string(state_));
-}
-
-void test_dump(const char * args)
-{
-  test.dump();
-}
-
-void Test::change_PS_EL_configs(const ProfileStep * profileStep)
-{
-  if (ELState::off == profileStep->elconfig_.state_) {
-    LOG("deactivating EL");
-    elDevice.set_input_OFF();
-  } else if (ELState::CC == profileStep->elconfig_.state_) {
-    LOG("changing EL config");
-    elDevice.cc_range(profileStep->elconfig_.range_);
-    elDevice.cc_level(profileStep->elconfig_.level_);
-    elDevice.cc_level();
-    elDevice.set_input_ON();
-  } else {
-    LOG("ERROR: Unexpected EL state");
-  }
-}
-
-void Test::deactivate_PS_EL()
-{
-  LOG("deactivating EL");
-  elDevice.set_input_OFF();
-}
-
-void Test::on_loop(uint32_t now_ms)
-{
-  switch (state_) {
-#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
-    CASE_CALL(idle)
-    CASE_CALL(step_init)
-    CASE_CALL(sub_step_init)
-    CASE_CALL(sub_step_wait)
-    CASE_CALL(sub_step_measure)
-    CASE_CALL(spi_wait)
-    CASE_CALL(sub_step_next)
-    CASE_CALL(step_next)
-    CASE_CALL(abort)
-    CASE_CALL(cleanup)
-#undef CASE_CALL
-    default:
-      LOG("Unexpected state=%u/'%s'", state_, to_string(state_));
-      break;
-  }
-}
-
-// u1_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
-// u1_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
-// u1_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
-// u1_lf *IDN?
-
-// u2_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
-// u2_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
-// u2_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
-// u2_lf *IDN?
-// u2_lfcr *IDN?
-// u2_cr *IDN?
-// u2_crlf *IDN?
-// u2_lf *CLS?
-
-//static
-void ux_hex(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig0 = xx_uartConfigs[0];
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  for (;;) {
-    args = skip_whitespace(args);
-    if (!*args) { break; }
-    char * endptr = NULL;
-    uint8_t xx = strtoul(args, &endptr, 0);
-    LOG(". xx='0x%02X'", xx);
-
-    uartConfig0->write('"');
-    uartConfig0->write(xx);
-    uartConfig0->write('"');
-    uartConfig0->write('\r');
-    uartConfig0->write('\n');
-
-    uartConfig->write(xx);
-    args = endptr;
-  }
-}
-
-//static
-void ux_cr(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\r');
-}
-
-void ux_crlf(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\r');
-  uartConfig->write('\n');
-}
-
-//static
-void ux_lf(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\n');
-}
-
-void ux_lfcr(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\n');
-  uartConfig->write('\r');
-}
-
-void u1_hex(const char * args) { ux_hex(1, args); }
-void u2_hex(const char * args) { ux_hex(2, args); }
-void u1_cr(const char * args) { ux_cr(1, args); }
-void u2_cr(const char * args) { ux_cr(2, args); }
-void u1_crlf(const char * args) { ux_crlf(1, args); }
-void u2_crlf(const char * args) { ux_crlf(2, args); }
-void u1_lf(const char * args) { ux_lf(1, args); }
-void u2_lf(const char * args) { ux_lf(2, args); }
-void u1_lfcr(const char * args) { ux_lfcr(1, args); }
-void u2_lfcr(const char * args) { ux_lfcr(2, args); }
-
-double command_args_to_ud(const char * args, const char ** tail)
-{
-  double v;
-  char * endptr = NULL;
-
-  args = skip_whitespace(args);
-  if (!*args) {
-    v = 0;
-  } else {
-    v = strtod(args, &endptr);
-  }
-  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
-
-  if (endptr) {
-    endptr = skip_whitespace(endptr);
-  }
-  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
-
-  if (tail) {
-    *tail = endptr;
-  } else if (endptr && *endptr) {
-    LOG("ignoring '%s'", endptr);
-  }
-
-  return v;
-}
-
-unsigned long command_args_to_ul(const char * args, const char ** tail)
-{
-  unsigned v;
-  char * endptr = NULL;
-
-  args = skip_whitespace(args);
-  if (!*args) {
-    v = 0;
-  } else {
-    v = strtoul(args, &endptr, 0);
-  }
-  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
-
-  if (endptr) {
-    endptr = skip_whitespace(endptr);
-  }
-  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
-
-  if (tail) {
-    *tail = endptr;
-  } else if (endptr && *endptr) {
-    LOG("ignoring '%s'", endptr);
-  }
-
-  return v;
-}
-
-void ux_baud(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-
-  char * endptr = NULL;
-  uint32_t baudrate = strtoul(args, &endptr, 0);
-  if (endptr && *endptr) {
-    LOG("ignoring '%s'", endptr);
-  }
-  LOG("setting baudrate=%u", baudrate);
-  uartConfig->baudRate(baudrate);
-  LOG("active baudrate=%u", uartConfig->baudRate());
-}
-
-void u1_baud(const char * args) { ux_baud(1, args); }
-void u2_baud(const char * args) { ux_baud(2, args); }
-
-void command_idn(const char * args)
-{
-  (void) args;
-  LOG("NubaCell BT ESP32 v.0.0 sn:1234567890");
-}
-
-static const commands_map_t commands_map[] = {
-#define CMD(x) { #x, CONSTSTRLEN(#x), x, }
-  CMD(u1_hex),
-  CMD(u2_hex),
-  CMD(u1_cr),
-  CMD(u2_cr),
-  CMD(u1_crlf),
-  CMD(u2_crlf),
-  CMD(u1_lf),
-  CMD(u2_lf),
-  CMD(u1_lfcr),
-  CMD(u2_lfcr),
-  CMD(u1_baud),
-  CMD(u2_baud),
-#undef CMD
-#define COMMAND(cmd,func) { cmd, CONSTSTRLEN(cmd), func, }
-  COMMAND("*IDN?", command_idn),
-#undef COMMAND
-#define COMMAND(cmd) { #cmd, CONSTSTRLEN(#cmd), cmd, }
-
-  COMMAND(el_id),
-  COMMAND(el_clear_errors),
-  //COMMAND(el_release_control),
-  COMMAND(el_function),
-  COMMAND(el_input),
-
-  COMMAND(el_cc_range),
-  COMMAND(el_cv_range),
-  COMMAND(el_cc_level),
-  COMMAND(el_cv_level),
-
-  COMMAND(profile_steps),
-  COMMAND(profile_steps_dump),
-  COMMAND(profile_step),
-
-  COMMAND(test_run),
-  COMMAND(test_abort),
-  COMMAND(test_dump),
-
-  COMMAND(spi_run),
-  COMMAND(spi_stats),
-
-  COMMAND(ps_id),
-  COMMAND(ps_v),
-  COMMAND(ps_c),
-  COMMAND(ps_ovp),
-  COMMAND(ps_ocp),
-  COMMAND(ps_output),
-
-  COMMAND(scope_sync_on),
-  COMMAND(scope_sync_off),
-  COMMAND(scope_sync_pulse),
-
-  COMMAND(pin_dump),
-  COMMAND(pin_reset),
-  COMMAND(pin_level),
-  COMMAND(pin_mode),
-  COMMAND(pin_pull),
-#undef COMMAND
-};
-
-static
-void
-print_commands(
-    const commands_map_t * commands_map,
-    size_t commands_count)
-{
-  LOG("Available commands:");
-  for (unsigned i = 0; i < commands_count; ++i) {
-    LOG(". %s", commands_map[i].command_s);
-  }
-}
-
-void print_commands()
-{
-  print_commands(commands_map, ARRAY_SIZE(commands_map));
-}
-
-static
-command_fn_t
-command_s_to_fn(
-    const commands_map_t * commands_map,
-    size_t commands_count,
-    const char * command_s,
-    size_t command_len)
-{
-  for (unsigned i = 0; i < commands_count; ++i) {
-    if (commands_map[i].command_len == command_len
-    && !strncmp(command_s, commands_map[i].command_s, command_len)) {
-      return commands_map[i].command_fn;
-    }
-  }
-  return NULL;
-}
-
-command_fn_t
-command_s_to_fn(
-    const char * command_s,
-    size_t command_len)
-{
-  return command_s_to_fn(
-      commands_map, ARRAY_SIZE(commands_map),
-      command_s, command_len);
-}
-
-static void log_write(unsigned line, const char * function, const char * s)
-{
-  const auto ms = millis();
-  Serial.print(ms);
-  Serial.print(" ");
-  Serial.print(function);
-  Serial.print(":");
-  Serial.print(line);
-  Serial.print("| ");
-
-  Serial.println(s);
-}
-
-void log(const char *file, unsigned line, const char * function, const char * format, ...)
-{
-  va_list argsList;
-  va_start(argsList, format);
-
-  constexpr size_t buffer_size = 128;
-  //static
-  char buffer[buffer_size];
-  const int vsnprintf_r = vsnprintf(buffer, sizeof(buffer), format, argsList);
-  log_write(line, function, buffer);
-
-  va_end(argsList);
-
-  if (vsnprintf_r < 0) {
-    const int snprintf_r = snprintf(buffer, sizeof(buffer),
-        "ALERT: '%s()' failure, errno=%i", "vsnprintf", errno);
-    if (snprintf_r < 0) {
-      log_write(__LINE__, __FUNCTION__, "ALERT: 'snprintf()' failure");
-    } else {
-      log_write(__LINE__, __FUNCTION__, buffer);
-    }
-  } else {
-    const size_t output_length = (size_t) vsnprintf_r;
-    const size_t needed_size = output_length + 1; // add space for terminating '\0'
-    if (buffer_size < needed_size) {
-      const int snprintf_r = snprintf(buffer, sizeof(buffer),
-          "ALERT: logger buffer overflow (needed=%zu available=%zu)",
-          needed_size, sizeof(buffer));
-      if (snprintf_r < 0) {
-        log_write(__LINE__, __FUNCTION__, "ALERT: 'snprintf()' failure");
-      } else {
-        log_write(__LINE__, __FUNCTION__, buffer);
-      }
-    }
-  }
-}
-
-static void report_config()
-{
-  Serial.print("device: '"); Serial.print(device_tag); Serial.println("'");
-  spi_report_config();
-}
-
-#if 0
-void serial_setup()
-{
-  //Serial.begin(115200);
-  xx_uartConfigs_init();
-  LOG_FUNCTION
-  LOG("uxTaskPriorityGet()=%i", uxTaskPriorityGet(NULL));
-
-  LOG_FUNCTION
-
-#if 0
-  Serial.println(ps_uart_cfg.tag);
-  xx_uart_cfg_hw_dump(&ps_uart_cfg);
-  Serial.println(pl_uart_cfg.tag);
-  xx_uart_cfg_hw_dump(&pl_uart_cfg);
-  LOG_FUNCTION
-#endif
-}
-#endif
-
-void setup()
-{
-  xx_uartConfigs_init();
-  scope_sync_setup();
-  spi_setup();
-  report_config();
-}
-
 void loop()
 {
   LOG("sp=%p", cpu_sp_get());
@@ -2843,466 +3274,10 @@ void loop()
   }
 }
 
-uint32_t cpu_sp_get()
+void setup()
 {
-  register uint32_t rsp asm("sp");
-  return rsp;
+  xx_uartConfigs_init();
+  scope_sync_setup();
+  spi_setup();
+  report_config();
 }
-
-// TODO: Use 'enum class' instead of 'unsigned'
-
-const char * const el_functions[] = { "CC", "CV", };
-
-const char * el_function_to_string(unsigned function)
-{
-  return el_functions[function];
-}
-
-
-const char * const el_ranges[] = { "HIGH", "LOW", "MID", };
-
-const char * el_range_to_string(unsigned cc_range)
-{
-  return el_ranges[cc_range];
-}
-
-static char nibble_hex(uint8_t b)
-{
-  uint8_t n = b & 0x0F;
-  return (n < 10) ? '0' + n : 'A' - 10 + n;
-}
-
-static void hex_dump_byte(char * p, uint8_t b)
-{
-  p[0] = nibble_hex(b >> 4);
-  p[1] = nibble_hex(b);
-}
-
-static char make_printable(uint8_t b)
-{
-  b &= 0x7F;
-  return (b < 0x20 || b >= 0x7F) ? '.' : b;
-}
-
-void hex_dump_line(
-    char * hex_s, size_t hex_s_size,
-    char * char_s, size_t char_s_size,
-    const uint8_t * data, size_t size)
-{
-  memset(hex_s, ' ', hex_s_size - 1);
-  hex_s[hex_s_size - 1] = '\0';
-  memset(char_s, ' ', char_s_size - 1);
-  char_s[char_s_size - 1] = '\0';
-  for (unsigned gi = 0; gi < 4; ++gi) {
-    for(unsigned bi = 0; bi < 4; ++bi) {
-      unsigned di = gi * 4 + bi;
-      unsigned hex_s_i = gi * (2 + 4*2+3) + bi * (2+1);
-      unsigned char_s_i = gi * (1 + 4) + bi;
-      if (di < size) {
-        uint8_t d = data[di];
-        hex_dump_byte(&hex_s[hex_s_i], d);
-        char_s[char_s_i] = make_printable(d);
-      } else {
-        hex_s[hex_s_i  ] = '.';
-        hex_s[hex_s_i+1] = '.';
-        char_s[char_s_i] = '.';
-      }
-    }
-  }
-}
-
-// "XXXXXXXX/XXX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XXXX XXXX XXXX XXXX"
-void hex_dump(const uint8_t * data, size_t size)
-{
-  //LOG("data=%p size=%zu", data, size);
-  static
-  char s[sizeof("XXXXXXXX/XXX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XX XX XX XX  XXXX XXXX XXXX XXXX")];
-  for (uint32_t offs = 0; offs < size; offs += 16) {
-    const uint8_t * addr = data + offs;
-    static
-    char hex_s[sizeof("XX XX XX XX  XX XX XX XX  XX XX XX XX  XX XX XX XX")];
-    static
-    char char_s[sizeof("XXXX XXXX XXXX XXXX")];
-    size_t left = size - offs;
-    hex_dump_line(hex_s, sizeof(hex_s), char_s, sizeof(char_s), addr, left);
-    //LOG("hex_s='%s'", hex_s);
-    //LOG("char_s='%s'", char_s);
-    snprintf(s, sizeof(s), "%08X/%03X  %s  %s", addr, offs, hex_s, char_s);
-    Serial.print(". . ");
-    Serial.println(s);
-  }
-}
-
-void pin_dump(const char * args)
-{
-  unsigned pin = command_args_to_ul(args, nullptr);
-  if (pin >= GPIO_NUM_MAX) {
-    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
-    return;
-  }
-  gpio_dump_io_configuration(stdout, (1ULL << pin));
-}
-
-/*
-    esp_err_t gpio_reset_pin(gpio_num_t gpio_num)
-
-      gpio_intr_disable(gpio_num);
-      gpio_pullup_en(gpio_num);
-      gpio_pulldown_dis(gpio_num);
-      gpio_input_disable(gpio_num);
-      gpio_output_disable(gpio_num);
-      gpio_hal_func_sel(gpio_context.gpio_hal, gpio_num, PIN_FUNC_GPIO);
-
-*/
-void pin_reset(const char * args)
-{
-  unsigned pin = command_args_to_ul(args, nullptr);
-  if (pin >= GPIO_NUM_MAX) {
-    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
-    return;
-  }
-  if (ESP_OK != gpio_reset_pin(gpio_num_t(pin))) {
-    LOG("ERROR: %s(pin=%u)", "gpio_reset_pin", pin);
-  }
-}
-
-/*
-    int gpio_get_level(gpio_num_t gpio_num);
-    esp_err_t gpio_set_level(gpio_num_t gpio_num, uint32_t level);
-
-      level Output level. 0: low ; 1: high
-*/
-void pin_level(const char * args)
-{
-  const char * tail = NULL;
-  unsigned pin = command_args_to_ul(args, &tail);
-  if (pin >= GPIO_NUM_MAX) {
-    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
-    return;
-  }
-
-  if (tail && *tail) {
-    unsigned v = command_args_to_ul(tail, nullptr);
-    LOG(". setting pin=%u level=%u", pin, v);
-    if (ESP_OK != gpio_set_level(gpio_num_t(pin), v)) {
-      LOG("ERROR: %s(pin=%u)", "gpio_set_level", pin);
-    }
-  }
-
-  LOG("%s(pin=%u)=%u", "gpio_get_level", pin, gpio_get_level(gpio_num_t(pin)));
-}
-
-/*
-    esp_err_t gpio_set_direction(gpio_num_t gpio_num, gpio_mode_t mode);
-
-    gpio_mode_t
-
-      GPIO_MODE_DISABLE
-      GPIO_MODE_INPUT                   // (1<<0)
-      GPIO_MODE_OUTPUT                  //          (1<<1)
-      GPIO_MODE_OUTPUT_OD               //          (1<<1) | (1<<2)
-      GPIO_MODE_INPUT_OUTPUT            // (1<<0) | (1<<1)
-      GPIO_MODE_INPUT_OUTPUT_OD         // (1<<0) | (1<<1) | (1<<2)
-
-    if (mode & GPIO_MODE_DEF_INPUT ) { gpio_input_enable(gpio_num);  } else { gpio_input_disable(gpio_num); }
-    if (mode & GPIO_MODE_DEF_OUTPUT) { gpio_output_enable(gpio_num); } else { gpio_output_disable(gpio_num); }
-    if (mode & GPIO_MODE_DEF_OD    ) { gpio_od_enable(gpio_num);     } else { gpio_od_disable(gpio_num); }
-
-*/
-static const struct {
-  gpio_mode_t mode;
-  const char * name;
-} pin_modes[] = {
-#define MODE(x) { GPIO_MODE_##x, #x }
-  MODE(DISABLE),
-  MODE(INPUT),
-  MODE(OUTPUT),
-  MODE(OUTPUT_OD),
-  MODE(INPUT_OUTPUT_OD),
-  MODE(INPUT_OUTPUT),
-#undef MODE
-};
-
-static void pin_modes_list()
-{
-  for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
-    LOG(". %u %s", pin_modes[i].mode, pin_modes[i].name);
-  }
-}
-
-void pin_mode(const char * args)
-{
-  const char * tail = NULL;
-  unsigned pin = command_args_to_ul(args, &tail);
-  if (pin >= GPIO_NUM_MAX) {
-    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
-    return;
-  }
-
-  if (tail && *tail) {
-    LOG("tail='%s'", tail);
-    for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
-      if (!strcasecmp(tail, pin_modes[i].name)) {
-        LOG(". setting mode %u %s", pin_modes[i].mode, pin_modes[i].name);
-        const auto mode = pin_modes[i].mode;
-        if (ESP_OK != gpio_set_direction(gpio_num_t(pin), mode)) {
-          LOG("ERROR: %s(pin=%u, mode=%u)", "gpio_set_direction", pin, mode);
-        }
-        return;
-      }
-    }
-    unsigned v = command_args_to_ul(tail, nullptr);
-    for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
-      if (pin_modes[i].mode == v) {
-        LOG(". setting mode %u %s", pin_modes[i].mode, pin_modes[i].name);
-        const auto mode = pin_modes[i].mode;
-        if (ESP_OK != gpio_set_direction(gpio_num_t(pin), mode)) {
-          LOG("ERROR: %s(pin=%u, mode=%u)", "gpio_set_direction", pin, mode);
-        }
-        return;
-      }
-    }
-  }
-
-  LOG("pin modes:");
-  pin_modes_list();
-}
-
-/*
-    esp_err_t gpio_set_pull_mode(gpio_num_t gpio_num, gpio_pull_mode_t pull);
-
-      gpio_pull_mode_t
-
-        GPIO_PULLUP_ONLY,               // Pad pull up
-        GPIO_PULLDOWN_ONLY,             // Pad pull down
-        GPIO_PULLUP_PULLDOWN,           // Pad pull up + pull down
-        GPIO_FLOATING,                  // Pad floating
-*/
-
-static const struct {
-  const char * name;
-  gpio_pull_mode_t pull;
-} pin_pulls[] = {
-#define PULL(n, e) { n, GPIO_##e }
-  PULL("UP"  , PULLUP_ONLY),
-  PULL("DOWN", PULLDOWN_ONLY),
-  PULL("BOTH", PULLUP_PULLDOWN),
-  PULL("NONE", FLOATING),
-#undef MODE
-};
-
-static void pin_pulls_list()
-{
-  for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
-    LOG(". %u %s", pin_pulls[i].pull, pin_pulls[i].name);
-  }
-}
-
-void pin_pull(const char * args)
-{
-  const char * tail = NULL;
-  unsigned pin = command_args_to_ul(args, &tail);
-  if (pin >= GPIO_NUM_MAX) {
-    LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
-    return;
-  }
-
-  if (tail && *tail) {
-    LOG("tail='%s'", tail);
-    for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
-      if (!strcasecmp(tail, pin_pulls[i].name)) {
-        LOG(". setting pull %u %s", pin_pulls[i].pull, pin_pulls[i].name);
-        const auto pull = pin_pulls[i].pull;
-        if (ESP_OK != gpio_set_pull_mode(gpio_num_t(pin), pull)) {
-          LOG("ERROR: %s(pin=%u, pull=%u)", "gpio_set_pull_mode", pin, pull);
-        }
-        return;
-      }
-    }
-    unsigned v = command_args_to_ul(tail, nullptr);
-    for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
-      if (pin_pulls[i].pull == v) {
-        LOG(". setting pull %u %s", pin_pulls[i].pull, pin_pulls[i].name);
-        const auto pull = pin_pulls[i].pull;
-        if (ESP_OK != gpio_set_pull_mode(gpio_num_t(pin), pull)) {
-          LOG("ERROR: %s(pin=%u, pull=%u)", "gpio_set_pull_mode", pin, pull);
-        }
-        return;
-      }
-    }
-  }
-
-  LOG("pin pulls:");
-  pin_pulls_list();
-}
-
-/*
-    esp_err_t gpio_input_enable(gpio_num_t gpio_num);
-    esp_err_t gpio_output_enable(gpio_num_t gpio_num);
-    esp_err_t gpio_output_disable(gpio_num_t gpio_num);
-    esp_err_t gpio_od_disable(gpio_num_t gpio_num)
-    esp_err_t gpio_od_enable(gpio_num_t gpio_num)
-
-    'gpio_input_disable' exists but is inaccessible due to 'static':
-    static esp_err_t gpio_input_disable(gpio_num_t gpio_num)
-*/
-
-void scope_sync_setup()
-{
-  LOG("");
-#if 1
-  gpio_set_level(gpio_num_t(SCOPE_SYNC), 1);
-  gpio_set_direction(gpio_num_t(SCOPE_SYNC), GPIO_MODE_INPUT_OUTPUT);
-#else
-  digitalWrite(SCOPE_SYNC, HIGH);
-  pinMode(SCOPE_SYNC, OUTPUT);
-#endif
-}
-
-void scope_sync_on(bool on)
-{
-#if 1
-  gpio_set_level(gpio_num_t(SCOPE_SYNC), !on);
-#else
-  digitalWrite(SCOPE_SYNC, (on) ? LOW : HIGH);
-#endif
-}
-
-void scope_sync_pulse(unsigned us)
-{
-  scope_sync_on(true);
-  if (us) { const auto us0 = esp_timer_get_time(); while ((esp_timer_get_time() - us0) < us) {} }
-  scope_sync_on(false);
-}
-
-void scope_sync_on(const char * args)
-{
-  (void) args;
-  LOG("");
-  scope_sync_on(true);
-}
-
-void scope_sync_off(const char * args)
-{
-  (void) args;
-  LOG("");
-  scope_sync_on(false);
-}
-
-void scope_sync_pulse(const char * args)
-{
-  unsigned us = command_args_to_ul(args, nullptr);
-  LOG("us=%u", us);
-  scope_sync_pulse(us);
-}
-
-const char * skip_whitespace(const char * p)
-{
-  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
-  while (' ' == *p || '\t' == *p) {
-    ++p;
-    //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
-  }
-  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
-  return p;
-}
-
-char * skip_whitespace(char * p)
-{
-  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
-  while (' ' == *p || '\t' == *p) {
-    ++p;
-    //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
-  }
-  //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
-  return p;
-}
-
-uint32_t regs_[8];
-//__attribute__((noinline))
-__attribute__((noipa))
-void save_regs(
-    uint32_t r0,
-    uint32_t r1,
-    uint32_t r2,
-    uint32_t r3,
-    uint32_t r4,
-    uint32_t r5)
-{
-  regs_[ 0] = r0;
-  regs_[ 1] = r1;
-  regs_[ 2] = r2;
-  regs_[ 3] = r3;
-  regs_[ 4] = r4;
-  regs_[ 5] = r5;
-}
-
-unsigned stack_recurse_count_;
-//__attribute__((noinline))
-__attribute__((noipa))
-void stack_recurse(unsigned depth)
-{
-  asm volatile ("");
-  STACK_MARKER(16, '1');
-  if (depth) {
-    stack_recurse(depth - 1);
-  }
-#if 1
-  {
-    save_regs(
-        cpu_sp_get() & 0xFFFFFF00,
-        1,
-        2,
-        3,
-        4,
-        5);
-  }
-  ++stack_recurse_count_;
-#endif
-}
-
-//__attribute__((noinline))
-__attribute__((noipa))
-void stack_dump_recursive(unsigned line, const char * func, unsigned depth)
-{
-  asm volatile ("");
-  STACK_MARKER(16, '2');
-  stack_recurse(4);
-  //const void * p = &p;
-  //LOG("_ %u:%s p=%p", line, func, p);
-  //LOG("_ %u:%s sp=%p p=%p", line, func, cpu_sp_get(), p);
-  LOG("_ %u:%s sp=%p", line, func, cpu_sp_get());
-  if (depth) {
-    stack_dump_recursive(line, func, depth - 1);
-  } else {
-    stack_dump(line, func);
-  }
-  ++stack_recurse_count_;
-}
-
-//__attribute__((noinline))
-__attribute__((noipa))
-void stack_dump(unsigned line, const char * func)
-{
-  asm volatile ("");
-  STACK_MARKER(16, '3');
-  //stack_recurse(4);
-  //const void * p = &p;
-  //LOG("_ %u:%s p=%p", line, func, p);
-  //LOG("_ %u:%s sp=%p p=%p", line, func, cpu_sp_get(), p);
-  LOG("_ %u:%s sp=%p", line, func, cpu_sp_get());
-  //hex_dump((const uint8_t*)p, 256);
-  //hex_dump( ((const uint8_t*)p) - 32, 256);
-  hex_dump( ((const uint8_t*)cpu_sp_get()) - 256, 256*3);
-}
-
-__attribute__((noinline))
-void stack_marker_fill(uint32_t * addr, size_t size, uint8_t fill)
-{
-  memset(addr, fill, size);
-  if (size >= sizeof(uint32_t)) {
-    *addr = uint32_t(addr);
-  }
-}
-
-const char device_tag[] = "esp32";
