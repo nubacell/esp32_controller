@@ -36,6 +36,7 @@ static const commands_map_t commands_map[] = {
 
   COMMAND(test_run),
   COMMAND(test_abort),
+  COMMAND(test_dump),
 
   COMMAND(spi_run),
   COMMAND(spi_stats),

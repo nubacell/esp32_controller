@@ -2,7 +2,7 @@
 void Test::change_PS_EL_configs(const ProfileStep * profileStep)
 {
   if (ELState::off == profileStep->elconfig_.state_) {
-    LOG("deactivatin EL");
+    LOG("deactivating EL");
     elDevice.set_input_OFF();
   } else if (ELState::CC == profileStep->elconfig_.state_) {
     LOG("changing EL config");

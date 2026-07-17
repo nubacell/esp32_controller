@@ -84,6 +84,9 @@ struct SPI_Device
   {
     run_ = true;
   }
+
+  bool isTransferFinished() { return State::idle == state_; }
+  bool areSensorsDataValid() { return sensors_data_valid_; }
 };
 
 extern SPI_Device spiDevice;

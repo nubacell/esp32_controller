@@ -394,6 +394,9 @@ struct SPI_Device
   {
     run_ = true;
   }
+
+  bool isTransferFinished() { return State::idle == state_; }
+  bool areSensorsDataValid() { return sensors_data_valid_; }
 };
 
 extern SPI_Device spiDevice;
@@ -906,7 +909,7 @@ static void SensorDevice_Data_report_one(unsigned i)
   const auto & deviceData = *(SensorDeviceData_t*)(&spi_rx_buffers[i][0]);
 
 #if 1
-  LOG(". sizeof(SensorDeviceData_t)=%zu LGT8F_SPI_DATA_SIZE==%zu", sizeof(SensorDeviceData_t), LGT8F_SPI_DATA_SIZE);
+  //LOG(". sizeof(SensorDeviceData_t)=%zu LGT8F_SPI_DATA_SIZE==%zu", sizeof(SensorDeviceData_t), LGT8F_SPI_DATA_SIZE);
   uint8_t checksum = calcCRC8(
     (const uint8_t *) &deviceData,
     LGT8F_SPI_DATA_SIZE - sizeof(deviceData.checksum));
@@ -1054,6 +1057,9 @@ struct UartConfig {
   int8_t rxd_gpio;
   int8_t txd_gpio;
 
+  size_t rxBufferSize;
+  size_t txBufferSize;
+
   /*
     ESP32 uses 'HardwareSerial' to represent Arduino's 'Serial*'.
 
@@ -1077,8 +1083,14 @@ struct UartConfig {
         uint32_t rx_buffer_size,
         uint32_t tx_buffer
         uint8_t rxfifo_full_thrhd)
+
+    Note: 'setRxBufferSize()' and 'setTxBufferSize()' must be invoked before 'begin()'
+    size_t HardwareSerial::setRxBufferSize(size_t new_size);
+    size_t HardwareSerial::setTxBufferSize(size_t new_size);
   */
   void init() const {
+    if (rxBufferSize) { hs->setRxBufferSize(rxBufferSize); }
+    if (txBufferSize) { hs->setTxBufferSize(txBufferSize); }
     hs->begin(baud, SERIAL_8N1, rxd_gpio, txd_gpio);
     ucLOG(". Rx GPIO=%i", rxd_gpio);
     ucLOG(". Tx GPIO=%i", txd_gpio);
@@ -1160,6 +1172,8 @@ static const UartConfig cn_uartConfig = {
   .n = 0,
   .rxd_gpio = -1, // '-1' == 'do not change'
   .txd_gpio = -1, // '-1' == 'do not change'
+  .rxBufferSize = 0,
+  .txBufferSize = 0x2000,
 };
 
 static const UartConfig ps_uartConfig = {
@@ -1169,6 +1183,8 @@ static const UartConfig ps_uartConfig = {
   .n = 1,
   .rxd_gpio = PS_UART_RX_GPIO,
   .txd_gpio = PS_UART_TX_GPIO,
+  .rxBufferSize = 0,
+  .txBufferSize = 0,
 };
 
 static const UartConfig el_uartConfig = {
@@ -1178,6 +1194,8 @@ static const UartConfig el_uartConfig = {
   .n = 2,
   .rxd_gpio = EL_UART_RX_GPIO,
   .txd_gpio = EL_UART_TX_GPIO,
+  .rxBufferSize = 0,
+  .txBufferSize = 0,
 };
 
 #if 1
@@ -1789,17 +1807,30 @@ struct Test
 {
   unsigned step_;
   unsigned sub_step_;
-  //uint32_t start_time_ms_;
-  uint32_t event_time_ms_;
+  uint32_t start_time_ms_;
+  uint32_t sub_step_end_time_ms_;
+  uint32_t spi_timeout_time_ms_;
 
   bool run_;
   bool abort_;
 
   enum class State {
-    init,
     idle,
-    running,
+//  init,                   // start_time_ms_ = sub_step_end_time_ms_ = now_ms;
+//  step_0,                 // step_ = 0;
+    step_init,              // 1 set PS/EL configs
+//       sub_step_0,        // sub_step_ = 0;
+         sub_step_init,     // 2 'sub_step_end_time_ms_ += measure_period_ms_;'
+         sub_step_wait,     // 3 wait for end of sub step (sub_step_end_time_ms_)
+         sub_step_measure,
+//                spi_init, // start SPI transfer to get measurements
+                  spi_wait, // 4 wait for end of SPI transfer
+         sub_step_next,     // 5 '++sub_step_ < substeps_count_ ? sub_step_init : step_next'
+    step_next,              // 6 '++step_ < steps_count_ ? step_init : cleanup'
+    abort,                  // 7 report and cleanup (deactivate PS and EL)
+    cleanup,                // 8 deactivate PS and EL
   };
+  State state_ = State::idle;
   static const char * to_string(State state);
 
   void state(State new_state)
@@ -1810,20 +1841,21 @@ struct Test
     LOG("'%s' -> '%s'", old_state_name, new_state_name);
   }
 
-  State state_ = State::init;
-
-  void on_state_init(uint32_t now_ms)
-  {
-    state(State::idle);
-  }
-
-
   void change_PS_EL_configs(const ProfileStep * profileStep);
   void deactivate_PS_EL();
-  void on_event(uint32_t now_ms);
+
   void on_loop(uint32_t now_ms) override;
+
   void on_state_idle(uint32_t now_ms);
-  void on_state_running(uint32_t now_ms);
+  void on_state_step_init(uint32_t now_ms);
+  void on_state_sub_step_init(uint32_t now_ms);
+  void on_state_sub_step_wait(uint32_t now_ms);
+  void on_state_sub_step_measure(uint32_t now_ms);
+  void on_state_spi_wait(uint32_t now_ms);
+  void on_state_sub_step_next(uint32_t now_ms);
+  void on_state_step_next(uint32_t now_ms);
+  void on_state_abort(uint32_t now_ms);
+  void on_state_cleanup(uint32_t now_ms);
 
   void run()
   {
@@ -1834,6 +1866,8 @@ struct Test
   {
     abort_ = true;
   }
+
+  void dump() const;
 };
 
 void PS_Device::v() const
@@ -2143,14 +2177,208 @@ static void uartDevices_on_loop(int32_t now_ms) {
 
 Controller controller;
 
+void Test::on_state_idle(uint32_t now_ms)
+{
+  if (run_) {
+    run_ = false;
+    abort_ = false;
+
+    if (!profile.steps_count_) {
+      LOG("ERROR: profile is empty");
+      state(State::idle);
+    } else {
+
+      // --- 'test_init' ---
+
+      // timings for all measurement sub steps will be based on 'test_start'
+      // time
+      start_time_ms_ = sub_step_end_time_ms_ = now_ms;
+
+      // --- 'step_0' ---
+      step_ = 0;
+
+      state(State::step_init);
+    }
+  }
+}
+
+void Test::on_state_step_init(uint32_t now_ms)
+{
+  // --- 'step_init' ---
+
+  const ProfileStep * profileStep = &profileSteps_[step_];
+
+  // set PS/EL configs
+  change_PS_EL_configs(profileStep);
+
+  // --- 'sub_step_0' ---
+  sub_step_ = 0;
+
+  state(State::sub_step_init);
+}
+
+/*
+    if !substeps_count_ skip waiting and jump directly to 'sub_step_measure'.
+
+    '!substeps_count_' can be useful to do measurements at the beginning of the
+    test immediately after changing PS and EL configs.
+
+    if !measure_period_ms_ then next '*_sub_step_end' will be quickly executed
+    just after few 'on_loop'.
+
+    '!measure_period_ms_' can be useful to do multiple repeated measurementsat
+    the beginning of the test immediately after changing PS and EL configs.
+*/
+
+void Test::on_state_sub_step_init(uint32_t now_ms)
+{
+  // --- 'sub_step_init' ---
+
+  const ProfileStep * profileStep = &profileSteps_[step_];
+  if (profileStep->substeps_count_) {
+    sub_step_end_time_ms_ += profileStep->measure_period_ms_;
+    LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
+    state(State::sub_step_wait);
+  } else {
+    state(State::sub_step_measure);
+  }
+}
+
+// Long running state. Check for user's abort request.
+
+// 'sub_step_wait'
+void Test::on_state_sub_step_wait(uint32_t now_ms)
+{
+  if (abort_) {
+    state(State::abort);
+  } else
+  if (sub_step_end_time_ms_ <= now_ms) {
+
+    // --- 'sub_step_end' ---
+    LOG("--- sub_step_=%u finished -- do measurements...", sub_step_);
+
+    // --- 'step_measure' ---
+
+    // --- 'spi_init' ---
+    // FIXME: Use correct 'spi_timeout_ms'
+    constexpr uint32_t spi_timeout_ms = 50;
+    //constexpr uint32_t spi_timeout_ms = 5;
+    spi_timeout_time_ms_ = now_ms + spi_timeout_ms;
+    LOG(". spi_timeout_time_ms_=%u", spi_timeout_time_ms_);
+    spiDevice.run();
+    state(State::spi_wait);
+
+  }
+}
+
+// 'sub_step_measure'
+void Test::on_state_sub_step_measure(uint32_t now_ms)
+{
+  // --- 'sub_step_measure' ---
+
+  // --- 'spi_init' ---
+  // FIXME: Use correct 'spi_timeout_ms'
+  constexpr uint32_t spi_timeout_ms = 50;
+  //constexpr uint32_t spi_timeout_ms = 5;
+  spi_timeout_time_ms_ = now_ms + spi_timeout_ms;
+  LOG(". spi_timeout_time_ms_=%u", spi_timeout_time_ms_);
+  spiDevice.run();
+  state(State::spi_wait);
+}
+
+// Long running state. Check for user's abort request.
+
+// 'spi_wait'
+void Test::on_state_spi_wait(uint32_t now_ms)
+{
+  if (abort_) {
+    state(State::abort);
+  } else
+  if (spiDevice.isTransferFinished()) {
+    //LOG("'transferFinished'");
+
+    // --- 'spi transfer end' ---
+
+    // FIXME: temporarily changed '!' to '!!' while SPI is disconnected
+    if (!!spiDevice.areSensorsDataValid()) {
+      LOG("ERROR: received sensors' data are invalid");
+      state(State::abort);
+    } else {
+      // report sensors' data
+      SensorDevices_Data_report_all();
+
+      // start next sub step
+      state(State::sub_step_next);
+
+    }
+  } else
+  if (spi_timeout_time_ms_ <= now_ms) {
+    LOG("ERROR: sensors' data SPI transfer timeout");
+    state(State::abort);
+  }
+}
+
+void Test::on_state_sub_step_next(uint32_t now_ms)
+{
+  // 'sub_step_next'
+
+  const ProfileStep * profileStep = &profileSteps_[step_];
+  ++sub_step_;
+  LOG(". sub_step_=%u", sub_step_);
+  if (sub_step_ < profileStep->substeps_count_) {
+    sub_step_end_time_ms_ += profileStep->measure_period_ms_;
+    state(State::sub_step_init);
+  } else {
+    LOG("--- step_=%u finished -- start next step (change PS and EL configs) ...", step_);
+    state(State::step_next);
+  }
+}
+
+void Test::on_state_step_next(uint32_t now_ms)
+{
+  // --- 'step_next' ---
+  ++step_;
+  LOG(". step_=%u", step_);
+  if (step_ < profile.steps_count_) {
+    state(State::step_init);
+  } else {
+    state(State::cleanup);
+  }
+}
+
+// abort test execution.
+// Reached on user's request or on critical condition detection.
+
+void Test::on_state_abort(uint32_t now_ms)
+{
+  abort_ = false;
+  LOG("test execution aborted");
+  state(State::cleanup);
+}
+
+void Test::on_state_cleanup(uint32_t now_ms)
+{
+  // --- 'cleanup' ---
+  deactivate_PS_EL();
+  LOG("--- test finished ---");
+  state(State::idle);
+}
+
 Test test;
 
 const char * Test::to_string(State state)
 {
   static const char * const state_names[] = {
-    "init",
     "idle",
-    "running",
+    "step_init",
+    "sub_step_init",
+    "sub_step_wait",
+    "sub_step_measure",
+    "spi_wait",
+    "sub_step_next",
+    "step_next",
+    "abort",
+    "cleanup",
   };
   const auto i = unsigned(state);
   return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
@@ -2168,10 +2396,24 @@ void test_abort(const char * args)
   test.abort();
 }
 
+void Test::dump() const
+{
+  hex_dump( (const uint8_t*)this, sizeof(*this));
+  LOG("step=%u sub_step=%u start_time_ms=%u sub_step_end_time_ms=%u"
+      " spi_timeout_time_ms=%u run=%i abort=%i state=%u/%s",
+      step_, sub_step_, start_time_ms_, sub_step_end_time_ms_,
+      spi_timeout_time_ms_, run_, abort_, state_, to_string(state_));
+}
+
+void test_dump(const char * args)
+{
+  test.dump();
+}
+
 void Test::change_PS_EL_configs(const ProfileStep * profileStep)
 {
   if (ELState::off == profileStep->elconfig_.state_) {
-    LOG("deactivatin EL");
+    LOG("deactivating EL");
     elDevice.set_input_OFF();
   } else if (ELState::CC == profileStep->elconfig_.state_) {
     LOG("changing EL config");
@@ -2190,100 +2432,24 @@ void Test::deactivate_PS_EL()
   elDevice.set_input_OFF();
 }
 
-void Test::on_event(uint32_t now_ms)
-{
-  LOG("--- sub_step_=%u finished -- do measurements...", sub_step_);
-
-  const ProfileStep * profileStep = &profileSteps_[step_];
-  ++sub_step_;
-  if (sub_step_ < profileStep->substeps_count_) {
-    event_time_ms_ += profileStep->measure_period_ms_;
-  } else {
-    LOG("--- step_=%u finished -- change PS and EL configs...", step_);
-
-    ++step_;
-    if (step_ < profile.steps_count_) {
-
-      profileStep = &profileSteps_[step_];
-      sub_step_ = 0;
-
-      // Change PS and EL configs.
-      change_PS_EL_configs(profileStep);
-
-      // if !substeps_count_ || measure_period_ms_ then next 'on_event' will
-      // be executed on next 'on_loop'.
-      if (profileStep->substeps_count_
-      && profileStep->measure_period_ms_) {
-        event_time_ms_ += profileStep->measure_period_ms_;
-      }
-
-    } else {
-      deactivate_PS_EL();
-      LOG("--- test finished ---");
-      // 'test' finished
-      state(State::idle);
-    }
-  }
-}
-
-void Test::on_loop(uint32_t now_ms) override
+void Test::on_loop(uint32_t now_ms)
 {
   switch (state_) {
 #define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
-    CASE_CALL(init)
     CASE_CALL(idle)
-    CASE_CALL(running)
+    CASE_CALL(step_init)
+    CASE_CALL(sub_step_init)
+    CASE_CALL(sub_step_wait)
+    CASE_CALL(sub_step_measure)
+    CASE_CALL(spi_wait)
+    CASE_CALL(sub_step_next)
+    CASE_CALL(step_next)
+    CASE_CALL(abort)
+    CASE_CALL(cleanup)
 #undef CASE_CALL
     default:
       LOG("Unexpected state=%u/'%s'", state_, to_string(state_));
       break;
-  }
-}
-
-void Test::on_state_idle(uint32_t now_ms)
-{
-  if (run_) {
-    run_ = false;
-    abort_ = false;
-
-    if (!profile.steps_count_) {
-      LOG("ERROR: profile is empty");
-      state(State::idle);
-    } else {
-      state(State::running);
-
-      step_ = 0;
-      sub_step_ = 0;
-
-      const ProfileStep * profileStep = &profileSteps_[step_];
-
-      //start_time_ms_ = now_ms;
-      event_time_ms_ = now_ms;
-
-      // Change PS and EL configs.
-      change_PS_EL_configs(profileStep);
-
-      // if !substeps_count_ || measure_period_ms_ then next 'on_event' will
-      // be executed on next 'on_loop'.
-      if (profileStep->substeps_count_
-      && profileStep->measure_period_ms_) {
-        event_time_ms_ += profileStep->measure_period_ms_;
-      }
-    }
-  }
-}
-
-void Test::on_state_running(uint32_t now_ms)
-{
-  if (abort_) {
-    abort_ = false;
-
-    deactivate_PS_EL();
-
-    state(State::idle);
-  } else
-  if (event_time_ms_ <= now_ms) {
-    on_event(now_ms);
   }
 }
 
@@ -2481,6 +2647,7 @@ static const commands_map_t commands_map[] = {
 
   COMMAND(test_run),
   COMMAND(test_abort),
+  COMMAND(test_dump),
 
   COMMAND(spi_run),
   COMMAND(spi_stats),

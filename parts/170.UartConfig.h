@@ -10,6 +10,9 @@ struct UartConfig {
   int8_t rxd_gpio;
   int8_t txd_gpio;
 
+  size_t rxBufferSize;
+  size_t txBufferSize;
+
   /*
     ESP32 uses 'HardwareSerial' to represent Arduino's 'Serial*'.
 
@@ -33,8 +36,14 @@ struct UartConfig {
         uint32_t rx_buffer_size,
         uint32_t tx_buffer
         uint8_t rxfifo_full_thrhd)
+
+    Note: 'setRxBufferSize()' and 'setTxBufferSize()' must be invoked before 'begin()'
+    size_t HardwareSerial::setRxBufferSize(size_t new_size);
+    size_t HardwareSerial::setTxBufferSize(size_t new_size);
   */
   void init() const {
+    if (rxBufferSize) { hs->setRxBufferSize(rxBufferSize); }
+    if (txBufferSize) { hs->setTxBufferSize(txBufferSize); }
     hs->begin(baud, SERIAL_8N1, rxd_gpio, txd_gpio);
     ucLOG(". Rx GPIO=%i", rxd_gpio);
     ucLOG(". Tx GPIO=%i", txd_gpio);

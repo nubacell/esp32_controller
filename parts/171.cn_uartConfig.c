@@ -6,4 +6,6 @@ static const UartConfig cn_uartConfig = {
   .n = 0,
   .rxd_gpio = -1, // '-1' == 'do not change'
   .txd_gpio = -1, // '-1' == 'do not change'
+  .rxBufferSize = 0,
+  .txBufferSize = 0x2000,
 };

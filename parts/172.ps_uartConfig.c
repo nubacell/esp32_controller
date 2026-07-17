@@ -6,4 +6,6 @@ static const UartConfig ps_uartConfig = {
   .n = 1,
   .rxd_gpio = PS_UART_RX_GPIO,
   .txd_gpio = PS_UART_TX_GPIO,
+  .rxBufferSize = 0,
+  .txBufferSize = 0,
 };
