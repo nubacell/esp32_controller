@@ -1,15 +1,7 @@
 
 void loop()
 {
-  LOG("sp=%p", cpu_sp_get());
-  //STACK_MARKER(256);
-  //LOG("uxTaskGetStackHighWaterMark()=%u", uxTaskGetStackHighWaterMark(NULL));
-  //stack_recurse(64);
-  //STACK_DUMP();
-  //STACK_DUMP_RECURSIVE(8);
-  for (;;) {
-
-  //LOG_FUNCTION
+  //LOG("sp=%p", cpu_sp_get());
 
   static uint32_t loop_count = 0;
 
@@ -40,5 +32,4 @@ void loop()
   test.on_loop(now_ms);
 
   ++loop_count;
-  }
 }

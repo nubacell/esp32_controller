@@ -1,5 +1,5 @@
 
-static void log_write(unsigned line, const char * function, const char * s)
+void log_write(unsigned line, const char * function, const char * s)
 {
   const auto ms = millis();
   Serial.print(ms);
