@@ -21,7 +21,7 @@ static void SensorDevice_Data_report_one(unsigned i)
 {
   const auto & deviceData = *(SensorDeviceData_t*)(&spi_rx_buffers[i][0]);
 
-#if 1
+#if 0
   //LOG(". sizeof(SensorDeviceData_t)=%zu LGT8F_SPI_DATA_SIZE==%zu", sizeof(SensorDeviceData_t), LGT8F_SPI_DATA_SIZE);
   uint8_t checksum = calcCRC8(
     (const uint8_t *) &deviceData,
