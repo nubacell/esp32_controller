@@ -100,6 +100,41 @@ void stack_marker_fill(uint32_t * addr, size_t size, uint8_t fill);
 extern const char device_tag[];
 
 extern const char CMD_IDENTIFY[];
+#pragma once
+
+#include <stdbool.h> // bool
+#include <stddef.h> // size_t
+#include <stdint.h> // [u]int(8|16|32|64)_t
+
+#define CVT_HEX_MAX_DIGITS  16
+/*  8 = roundUp(32bits/4) */
+/* 16 = roundUp(64bits/4) */
+#define CVT_UDEC_MAX_DIGITS 20
+/* 10 = roundUp(32bits*3/10) */
+/* 20 = roundUp(64bits*3/10) */
+#define CVT_SDEC_MAX_DIGITS (1+CVT_UDEC_MAX_DIGITS)
+#define CVT_BINARY_MAX_DIGITS 64
+
+size_t cvt_ud2a(char* buffer, uint64_t number, uint8_t base, bool upperCase);
+size_t cvt_hex (char* buffer, uint64_t number, bool upperCase);
+size_t cvt_uDec(char* buffer, uint64_t number);
+size_t cvt_sDec(char* buffer,  int64_t number);
+size_t cvt_oct (char* buffer, uint64_t number);
+size_t cvt_bin (char* buffer, uint64_t number);
+
+// Warning: Don't forget to provide extra space for zero terminator.
+// Note: Returned value does not include zero terminator.
+size_t cvt_ud2a_z(char* buffer, uint64_t number, uint8_t base, bool upperCase);
+size_t cvt_hex_z (char* buffer, uint64_t number, bool upperCase);
+size_t cvt_uDec_z(char* buffer, uint64_t number);
+size_t cvt_sDec_z(char* buffer,  int64_t number);
+size_t cvt_oct_z (char* buffer, uint64_t number);
+size_t cvt_bin_z (char* buffer, uint64_t number);
+
+size_t cvt_u32tos(char* buffer, uint32_t number, uint8_t base, bool upperCase);
+
+size_t safe_vsnprintf(char * buffer, size_t size, const char * format, va_list ap);
+size_t safe_snprintf(char * buffer, size_t size, const char * format, ...);
 
 const char * skip_whitespace(const char * p);
 char * skip_whitespace(char * p);
@@ -1109,6 +1144,8 @@ bool spi_rx_bits_valid();
 struct SPI_Device
   : Runnable
 {
+  uint32_t transfer_start_time_ms_;
+  uint32_t transfer_finish_time_ms_;
   uint32_t timeout_time_ms_;
 
   bool run_ = false;
@@ -1450,6 +1487,183 @@ void stack_marker_fill(uint32_t * addr, size_t size, uint8_t fill)
 }
 
 const char device_tag[] = "esp32";
+
+size_t
+cvt_bin(char* buffer, uint64_t number)
+{
+  return cvt_ud2a(buffer, number, 2U, false);
+}
+
+size_t
+cvt_bin_z(char* buffer, uint64_t number)
+{
+  size_t size = cvt_bin(buffer, number);
+  buffer[size] = '\0';
+  return size;
+}
+
+size_t
+cvt_hex(char* buffer, uint64_t number, bool upperCase)
+{
+  return cvt_ud2a(buffer, number, 16U, upperCase);
+}
+
+size_t
+cvt_hex_z(char* buffer, uint64_t number, bool upperCase)
+{
+  size_t size = cvt_hex(buffer, number, upperCase);
+  buffer[size] = '\0';
+  return size;
+}
+
+size_t
+cvt_oct(char* buffer, uint64_t number)
+{
+  return cvt_ud2a(buffer, number, 8U, false);
+}
+
+size_t
+cvt_oct_z(char* buffer, uint64_t number)
+{
+  size_t size = cvt_oct(buffer, number);
+  buffer[size] = '\0';
+  return size;
+}
+
+size_t
+cvt_sDec(char* buffer, int64_t number)
+{
+  if (number < 0) {
+    *buffer++ = '-';
+    number = -number;
+  }
+  return cvt_ud2a(buffer, number, 10U, false);
+}
+
+size_t
+cvt_sDec_z(char* buffer, int64_t number)
+{
+  size_t size = cvt_sDec(buffer, number);
+  buffer[size] = '\0';
+  return size;
+}
+
+// Assuming 'base' is 2, 8, 10, or 16.
+size_t
+cvt_u32tos(char* buffer, uint32_t number, uint8_t base, bool upperCase)
+{
+  if (!number)
+  {
+    *buffer = '0';
+    return 1;
+  }
+
+  uint8_t digits[CVT_BINARY_MAX_DIGITS];
+  size_t digitIndex = 0;
+
+  while (number)
+  {
+    digits[digitIndex++] = number % base;
+    number /= base;
+  }
+  size_t size = digitIndex;
+  while (digitIndex)
+  {
+    uint8_t ASCIIdigit = digits[--digitIndex];
+    if (ASCIIdigit < 10)
+    {
+      ASCIIdigit += '0';
+    }
+    else
+    {
+      ASCIIdigit += upperCase ? ('A' - 10) : ('a' - 10);
+    }
+    *buffer++ = ASCIIdigit;
+  }
+  return size;
+}
+
+// Assuming 'base' is 2, 8, 10, or 16.
+size_t
+cvt_u32tos_z(char* buffer, uint32_t number, uint8_t base, bool upperCase)
+{
+  size_t size = cvt_u32tos(buffer, number, base, upperCase);
+  buffer[size] = '\0';
+  return size;
+}
+
+// Assuming 'base' is 2, 8, 10, or 16.
+size_t
+cvt_ud2a(char* buffer, uint64_t number, uint8_t base, bool upperCase)
+{
+  if (!number)
+  {
+    *buffer = '0';
+    return 1;
+  }
+
+  uint8_t digits[CVT_BINARY_MAX_DIGITS];
+  size_t digitIndex = 0;
+
+  while (number)
+  {
+    digits[digitIndex++] = number % base;
+    number /= base;
+  }
+  size_t size = digitIndex;
+  while (digitIndex)
+  {
+    uint8_t ASCIIdigit = digits[--digitIndex];
+    if (ASCIIdigit < 10)
+    {
+      ASCIIdigit += '0';
+    }
+    else
+    {
+      ASCIIdigit += upperCase ? ('A' - 10) : ('a' - 10);
+    }
+    *buffer++ = ASCIIdigit;
+  }
+  return size;
+}
+
+// Assuming 'base' is 2, 8, 10, or 16.
+size_t
+cvt_ud2a_z(char* buffer, uint64_t number, uint8_t base, bool upperCase)
+{
+  size_t size = cvt_ud2a(buffer, number, base, upperCase);
+  buffer[size] = '\0';
+  return size;
+}
+
+size_t
+cvt_uDec(char* buffer, uint64_t number)
+{
+  return cvt_ud2a(buffer, number, 10U, false);
+}
+
+size_t
+cvt_uDec_z(char* buffer, uint64_t number)
+{
+  size_t size = cvt_uDec(buffer, number);
+  buffer[size] = '\0';
+  return size;
+}
+
+size_t safe_vsnprintf(char * buffer, size_t size, const char * format, va_list ap)
+{
+  const auto r = vsnprintf(buffer, size, format, ap);
+  return (r < 0) ? 0 : r;
+}
+
+size_t safe_snprintf(char * buffer, size_t size, const char * format, ...)
+{
+  va_list argsList;
+  va_start(argsList, format);
+  size_t r = safe_vsnprintf(buffer, size, format, argsList);
+  va_end(argsList);
+  return r;
+}
 
 const char CMD_IDENTIFY[] = "*IDN?";
 
@@ -2381,6 +2595,7 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
     run_ = false;
 
     scope_sync_on(true);
+    transfer_start_time_ms_ = now_ms;
 
     constexpr uint32_t spi_transfer_all_timeout_ms = 100;
     timeout_time_ms_ = now_ms + spi_transfer_all_timeout_ms;
@@ -2426,6 +2641,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
       sensors_data_valid_ = spi_rx_bits_valid();
       //LOG("sensors_data_valid_=%i", sensors_data_valid_);
       // FIXME: check CRCs
+      transfer_finish_time_ms_ = now_ms;
       scope_sync_on(false);
       state(State::idle);
     }
@@ -2586,52 +2802,108 @@ static void SensorDevices_Data_report_all()
 
 namespace rpi {
 
-static void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
+static size_t analog_report_one(
+    char * buffer, size_t buffer_size,
+    const SensorDeviceData_t & deviceData, unsigned i)
 {
   const auto analogSignal = deviceData.analogSignals[i];
-  Serial.print(" ");
-  //Serial.print(analogSignal);
-  Serial.print(analogSignal);
-  //Serial.print("/");
-  //Serial.print(analogSignal * 0.001, 3);
+  return safe_snprintf(buffer, buffer_size, " %4u", analogSignal);
 }
 
-static void analog_report_all(const SensorDeviceData_t & deviceData)
+static size_t analog_report_all(
+    char * buffer, size_t buffer_size,
+    const SensorDeviceData_t & deviceData)
 {
+  size_t used = 0;
   for (unsigned i = 0; i < ANALOG_SIGNALS_COUNT; ++i) {
-    ::rpi::analog_report_one(deviceData, i);
+    if (buffer_size > used) {
+      const size_t left = buffer_size - used;
+      used += ::rpi::analog_report_one(&buffer[used], left, deviceData, i);
+    }
   }
+  return used;
 }
 
 // byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
-static void SensorDevice_Data_report_one(unsigned i)
+static size_t SensorDevice_Data_report_one(
+    char * buffer, size_t buffer_size,
+    unsigned i)
 {
   const auto & deviceData = *(SensorDeviceData_t*)(&spi_rx_buffers[i][0]);
 
-  Serial.print("  ");
-  Serial.print(deviceData.vcc * 125);
-  //Serial.print(deviceData.vcc);
-  //Serial.print("/");
-  //Serial.print(deviceData.vcc * 5 / 4);
-  //Serial.print("/");
-  //Serial.print(deviceData.vcc * 0.00125, 4);
-  //Serial.print(" |");
-  ::rpi::analog_report_all(deviceData);
+#if 1
+  size_t used = safe_snprintf(buffer, buffer_size, "  %6u", deviceData.vcc * 125);
+#else
+  size_t used = safe_snprintf(buffer, buffer_size, "  %4u", deviceData.vcc);
+#endif
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += ::rpi::analog_report_all(&buffer[used], left, deviceData);
+  }
+  return used;
 }
 
-static void SensorDevices_Data_report_all()
+#define SensorDevices_Data_STRLEN ( \
+  CONSTSTRLEN("/TEST/SPI") \
+  + CONSTSTRLEN("  1234567890") \
+  + CONSTSTRLEN("  123456789") \
+  + CONSTSTRLEN("  123456789") \
+  + ( \
+    CONSTSTRLEN("  123456") \
+    + CONSTSTRLEN(" 1234") * ANALOG_SIGNALS_COUNT \
+  ) * SPI_SENSOR_DEVICES_COUNT \
+  + CONSTSTRLEN("  FF\n") \
+)
+
+static void SensorDevices_Data_report_all(uint32_t test_start_time_ms)
 {
+  static char buffer[SensorDevices_Data_STRLEN+1];
+  size_t buffer_size = sizeof(buffer);
+
   const auto us1 = esp_timer_get_time(); // uint64_t
   const auto availableForWrite1 = cn_uartConfig.availableForWrite();
-  Serial.print("/TEST/SPI");
-  for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
-    ::rpi::SensorDevice_Data_report_one(i);
+
+  size_t used = safe_snprintf(buffer, buffer_size, "/TEST/SPI");
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, "  %10" PRIu64, us1);
   }
-  Serial.println("");
+
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, " %9u",
+        spiDevice.transfer_start_time_ms_ - test_start_time_ms);
+  }
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, " %9u",
+        spiDevice.transfer_finish_time_ms_ - test_start_time_ms);
+  }
+
+  for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
+    if (buffer_size > used) {
+      const size_t left = buffer_size - used;
+      used += ::rpi::SensorDevice_Data_report_one(&buffer[used], left, i);
+    }
+  }
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, "  XX\n");
+  }
+  if (used < buffer_size) {
+    Serial.write(buffer, used);
+    //LOG("buffer_size=%zu required=%zu", buffer_size, used + 1);
+  } else {
+    buffer[buffer_size - 2] = '\n';
+    buffer[buffer_size - 1] = '\0';
+    Serial.write(buffer, buffer_size - 1);
+    LOG("ERROR: buffer overflow (buffer_size=%zu required=%zu)", buffer_size, used + 1);
+  }
   const auto availableForWrite2 = cn_uartConfig.availableForWrite();
   const auto us2 = esp_timer_get_time(); // uint64_t
-  LOG("availableForWrite2=%u - availableForWrite1=%u =%u",
-      availableForWrite2, availableForWrite1, availableForWrite2 - availableForWrite1);
+  LOG("availableForWrite1=%u - availableForWrite2=%u =%i",
+      availableForWrite1, availableForWrite2,
+      int(availableForWrite1) - int(availableForWrite2));
   LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, us2, us1, us2 - us1);
 }
 
@@ -2747,8 +3019,7 @@ void Test::on_state_spi_wait(uint32_t now_ms)
 
     // --- 'spi transfer end' ---
 
-    // FIXME: temporarily changed '!' to '!!' while SPI is disconnected
-    if (!!spiDevice.areSensorsDataValid()) {
+    if (!spiDevice.areSensorsDataValid()) {
       LOG("ERROR: received sensors' data are invalid");
       state(State::abort);
     } else {
@@ -2766,7 +3037,7 @@ void Test::on_state_spi_wait(uint32_t now_ms)
 #endif
       // report sensors' data
       //SensorDevices_Data_report_all();
-      rpi::SensorDevices_Data_report_all();
+      rpi::SensorDevices_Data_report_all(/*Test::*/start_time_ms_);
 
       // start next sub step
       state(State::sub_step_next);
@@ -2922,8 +3193,8 @@ const UartConfig cn_uartConfig = {
   .rxd_gpio = -1, // '-1' == 'do not change'
   .txd_gpio = -1, // '-1' == 'do not change'
   .rxBufferSize = 0,
-//.txBufferSize = 0,
-  .txBufferSize = 0x1000,
+  .txBufferSize = 0x800,
+//.txBufferSize = 0x1000,
 };
 
 static const UartConfig ps_uartConfig = {

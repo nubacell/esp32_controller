@@ -58,6 +58,8 @@ bool spi_rx_bits_valid();
 struct SPI_Device
   : Runnable
 {
+  uint32_t transfer_start_time_ms_;
+  uint32_t transfer_finish_time_ms_;
   uint32_t timeout_time_ms_;
 
   bool run_ = false;

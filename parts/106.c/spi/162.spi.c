@@ -306,6 +306,7 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
     run_ = false;
 
     scope_sync_on(true);
+    transfer_start_time_ms_ = now_ms;
 
     constexpr uint32_t spi_transfer_all_timeout_ms = 100;
     timeout_time_ms_ = now_ms + spi_transfer_all_timeout_ms;
@@ -351,6 +352,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
       sensors_data_valid_ = spi_rx_bits_valid();
       //LOG("sensors_data_valid_=%i", sensors_data_valid_);
       // FIXME: check CRCs
+      transfer_finish_time_ms_ = now_ms;
       scope_sync_on(false);
       state(State::idle);
     }

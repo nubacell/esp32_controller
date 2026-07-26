@@ -12,8 +12,7 @@ void Test::on_state_spi_wait(uint32_t now_ms)
 
     // --- 'spi transfer end' ---
 
-    // FIXME: temporarily changed '!' to '!!' while SPI is disconnected
-    if (!!spiDevice.areSensorsDataValid()) {
+    if (!spiDevice.areSensorsDataValid()) {
       LOG("ERROR: received sensors' data are invalid");
       state(State::abort);
     } else {
@@ -31,7 +30,7 @@ void Test::on_state_spi_wait(uint32_t now_ms)
 #endif
       // report sensors' data
       //SensorDevices_Data_report_all();
-      rpi::SensorDevices_Data_report_all();
+      rpi::SensorDevices_Data_report_all(/*Test::*/start_time_ms_);
 
       // start next sub step
       state(State::sub_step_next);
