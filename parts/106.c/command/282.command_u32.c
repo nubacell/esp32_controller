@@ -1,5 +1,5 @@
 
-unsigned long command_args_to_ul(const char * args, const char ** tail)
+uint32_t command_args_to_u32(const char * args, const char ** tail)
 {
   unsigned v;
   char * endptr = NULL;

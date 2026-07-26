@@ -147,9 +147,13 @@ struct Runnable
   }
 };
 
+int32_t command_args_to_i32(const char * args, const char ** tail);
+
+uint32_t command_args_to_u32(const char * args, const char ** tail);
+
 double command_args_to_ud(const char * args, const char ** tail);
 
-unsigned long command_args_to_ul(const char * args, const char ** tail);
+#define command_args_to_ul command_args_to_u32
 
 typedef void (*command_fn_t)(const char * args);
 
@@ -1016,37 +1020,28 @@ struct ELConfig {
   }
 };
 
-struct ProfileStep {
+struct ProfileStep
+{
+
+  uint32_t step_ms;
+   int32_t I_A;
+  uint32_t sub_step_ms;
+  uint32_t PS_V_max;
+  uint32_t cBat_max_mV;
+  uint32_t cBat_min_mV;
+  uint32_t aBat_max_mV;
+  uint32_t aBat_min_mV;
+  uint32_t cBat_T_max_C;
+  uint32_t aBat_T_max_C;
+
+
   uint32_t substeps_count_ = 0;
   uint32_t measure_period_ms_;
   //PSConfig psconfig_;
   ELConfig elconfig_;
 
-  void dump() const {
-    LOG(". this=%p substeps_count=%u measure_period_ms=%u",
-        this, substeps_count_, measure_period_ms_);
-    //psconfig_.dump();
-    elconfig_.dump();
-  }
-
-  void apply(const char * args)
-  {
-    {
-      args = skip_whitespace(args);
-      char * endptr = NULL;
-      substeps_count_ = strtoul(args, &endptr, 0);
-      if (!endptr || !*endptr) { return; }
-      args = endptr;
-    }
-    {
-      args = skip_whitespace(args);
-      char * endptr = NULL;
-      measure_period_ms_ = strtoul(args, &endptr, 0);
-      if (!endptr || !*endptr) { return; }
-      args = endptr;
-    }
-    elconfig_.apply(args);
-  }
+  void dump() const;
+  void apply(const char * args);
 };
 
 constexpr uint32_t profile_steps_count_max = 100;
@@ -1354,8 +1349,8 @@ void log(const char *file, unsigned line, const char * function, const char * fo
   va_list argsList;
   va_start(argsList, format);
 
-  constexpr size_t buffer_size = 128;
-  //static
+  constexpr size_t buffer_size = 172;
+  static
   char buffer[buffer_size];
   const int vsnprintf_r = vsnprintf(buffer, sizeof(buffer), format, argsList);
   log_write(line, function, buffer);
@@ -1667,6 +1662,33 @@ size_t safe_snprintf(char * buffer, size_t size, const char * format, ...)
 
 const char CMD_IDENTIFY[] = "*IDN?";
 
+int32_t command_args_to_i32(const char * args, const char ** tail)
+{
+  unsigned v;
+  char * endptr = NULL;
+
+  args = skip_whitespace(args);
+  if (!*args) {
+    v = 0;
+  } else {
+    v = strtol(args, &endptr, 0);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (endptr) {
+    endptr = skip_whitespace(endptr);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (tail) {
+    *tail = endptr;
+  } else if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
+  }
+
+  return v;
+}
+
 // u1_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
 // u1_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
 // u1_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
@@ -1747,16 +1769,16 @@ void u2_lf(const char * args) { ux_lf(2, args); }
 void u1_lfcr(const char * args) { ux_lfcr(1, args); }
 void u2_lfcr(const char * args) { ux_lfcr(2, args); }
 
-double command_args_to_ud(const char * args, const char ** tail)
+uint32_t command_args_to_u32(const char * args, const char ** tail)
 {
-  double v;
+  unsigned v;
   char * endptr = NULL;
 
   args = skip_whitespace(args);
   if (!*args) {
     v = 0;
   } else {
-    v = strtod(args, &endptr);
+    v = strtoul(args, &endptr, 0);
   }
   //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
 
@@ -1774,16 +1796,16 @@ double command_args_to_ud(const char * args, const char ** tail)
   return v;
 }
 
-unsigned long command_args_to_ul(const char * args, const char ** tail)
+double command_args_to_ud(const char * args, const char ** tail)
 {
-  unsigned v;
+  double v;
   char * endptr = NULL;
 
   args = skip_whitespace(args);
   if (!*args) {
     v = 0;
   } else {
-    v = strtoul(args, &endptr, 0);
+    v = strtod(args, &endptr);
   }
   //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
 
@@ -2194,7 +2216,17 @@ void profile_step(const char * args)
 {
   args = skip_whitespace(args);
   if (!*args) {
-    LOG("format: step substeps_count period_ms EL_state EL_range EL_level");
+    LOG("format: step_number"
+        " step_ms"
+        " I_A"
+        " sub_step_ms"
+        " PS_V_max"
+        " cBat_max_mV"
+        " cBat_min_mV"
+        " aBat_max_mV"
+        " aBat_min_mV"
+        " cBat_T_max_C"
+        " aBat_T_max_C");
   } else {
     char * endptr = NULL;
     unsigned step = strtoul(args, &endptr, 0);
@@ -2209,6 +2241,67 @@ void profile_step(const char * args)
       profileStep->dump();
     }
   }
+}
+
+void ProfileStep::apply(const char * args)
+{
+  const char * tail = args;
+
+  if (!tail || !*tail) { return; }
+  step_ms = command_args_to_u32(tail, &tail);
+
+  if (!tail || !*tail) { return; }
+  I_A = command_args_to_i32(tail, &tail);
+
+  if (!tail || !*tail) { return; }
+  sub_step_ms = command_args_to_u32(tail, &tail);
+
+  if (!tail || !*tail) { return; }
+  PS_V_max = command_args_to_u32(tail, &tail);
+
+  if (!tail || !*tail) { return; }
+  cBat_max_mV = command_args_to_u32(tail, &tail);
+
+  if (!tail || !*tail) { return; }
+  cBat_min_mV = command_args_to_u32(tail, &tail);
+
+  if (!tail || !*tail) { return; }
+  aBat_max_mV = command_args_to_u32(tail, &tail);
+
+  if (!tail || !*tail) { return; }
+  aBat_min_mV = command_args_to_u32(tail, &tail);
+
+  if (!tail || !*tail) { return; }
+  cBat_T_max_C = command_args_to_u32(tail, &tail);
+
+  if (!tail || !*tail) { return; }
+  aBat_T_max_C = command_args_to_u32(tail, &tail);
+}
+
+void ProfileStep::dump() const
+{
+  LOG(". this=%p"
+      " step_ms=%u"
+      " I_A=%i"
+      " sub_step_ms=%u"
+      " PS_V_max=%u"
+      " cBat_max_mV=%u"
+      " cBat_min_mV=%u"
+      " aBat_max_mV=%u"
+      " aBat_min_mV=%u"
+      " cBat_T_max_C=%u"
+      " aBat_T_max_C=%u",
+      this,
+      step_ms,
+      I_A,
+      sub_step_ms,
+      PS_V_max,
+      cBat_max_mV,
+      cBat_min_mV,
+      aBat_max_mV,
+      aBat_min_mV,
+      cBat_T_max_C,
+      aBat_T_max_C);
 }
 
 static void report_config()

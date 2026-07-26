@@ -1,2 +1,2 @@
 
-unsigned long command_args_to_ul(const char * args, const char ** tail);
+#define command_args_to_ul command_args_to_u32
