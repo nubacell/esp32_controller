@@ -3046,9 +3046,24 @@ void Test::on_state_idle(uint32_t now_ms)
   }
 }
 
+#define TEST_STEP_START_STRLEN CONSTSTRLEN("/TEST/STEP 99\n")
+
 void Test::on_state_step_init(uint32_t now_ms)
 {
   // --- 'step_init' ---
+
+  char buffer[TEST_STEP_START_STRLEN+1];
+  size_t buffer_size = sizeof(buffer);
+  size_t used = safe_snprintf(buffer, buffer_size, "/TEST/STEP %2u\n", step_);
+  if (used < buffer_size) {
+    Serial.write(buffer, used);
+    //LOG("buffer_size=%zu required=%zu", buffer_size, used + 1);
+  } else {
+    buffer[buffer_size - 2] = '\n';
+    buffer[buffer_size - 1] = '\0';
+    Serial.write(buffer, buffer_size - 1);
+    LOG("ERROR: buffer overflow (buffer_size=%zu required=%zu)", buffer_size, used + 1);
+  }
 
   const ProfileStep * profileStep = &profileSteps_[step_];
 
@@ -3060,14 +3075,18 @@ void Test::on_state_step_init(uint32_t now_ms)
     to slow CPU.
   */
   const auto step_start_time_ms = step_end_time_ms_;
+#if 0
   LOG("DEBUG: step_start_time_ms=%u '%s' now_ms=%u",
       step_start_time_ms,
       (step_start_time_ms == now_ms) ? "==" : "!=",
       now_ms);
+#endif
   sub_step_end_time_ms_ = step_start_time_ms;
 
   step_end_time_ms_ += profileStep->step_ms;
+#if 0
   LOG(". step_end_time_ms_=%u", step_end_time_ms_);
+#endif
 
   // set PS/EL configs
   change_PS_EL_configs(profileStep);
@@ -3096,7 +3115,6 @@ void Test::on_state_sub_step_init(uint32_t now_ms)
   // --- 'sub_step_init' ---
 
   const ProfileStep * profileStep = &profileSteps_[step_];
-#if 1
   /*
     'sub_step_end_time_ms_' shall be relative to 'sub step [planned] start
     time'.
@@ -3106,19 +3124,14 @@ void Test::on_state_sub_step_init(uint32_t now_ms)
     'now_ms' due to slow CPU.
   */
   const auto sub_step_start_time_ms = sub_step_end_time_ms_;
+#if 0
   LOG("sub_step_start_time_ms=%u now_ms=%u", sub_step_start_time_ms, now_ms);
-  sub_step_end_time_ms_ = sub_step_start_time_ms + profileStep->sub_step_ms;
-  LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
-  state(State::sub_step_wait);
-#else
-  if (profileStep->step_ms) {
-    sub_step_end_time_ms_ += profileStep->sub_step_ms;
-    LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
-    state(State::sub_step_wait);
-  } else {
-    state(State::sub_step_measure);
-  }
 #endif
+  sub_step_end_time_ms_ = sub_step_start_time_ms + profileStep->sub_step_ms;
+#if 0
+  LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
+#endif
+  state(State::sub_step_wait);
 }
 
 // Long running state. Check for user's abort request.
@@ -3146,7 +3159,9 @@ void Test::on_state_sub_step_measure(uint32_t now_ms)
   constexpr uint32_t spi_timeout_ms = 50;
   //constexpr uint32_t spi_timeout_ms = 5;
   spi_timeout_time_ms_ = now_ms + spi_timeout_ms;
+#if 0
   LOG(". spi_timeout_time_ms_=%u", spi_timeout_time_ms_);
+#endif
   spiDevice.run();
   state(State::spi_wait);
 }
@@ -3238,6 +3253,7 @@ void Test::on_state_cleanup(uint32_t now_ms)
   // --- 'cleanup' ---
   deactivate_PS_EL();
   LOG("--- test finished ---");
+  Serial.print("/TEST/FINISHED\n");
   state(State::idle);
 }
 

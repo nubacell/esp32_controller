@@ -17,7 +17,6 @@ void Test::on_state_sub_step_init(uint32_t now_ms)
   // --- 'sub_step_init' ---
 
   const ProfileStep * profileStep = &profileSteps_[step_];
-#if 1
   /*
     'sub_step_end_time_ms_' shall be relative to 'sub step [planned] start
     time'.
@@ -27,17 +26,12 @@ void Test::on_state_sub_step_init(uint32_t now_ms)
     'now_ms' due to slow CPU.
   */
   const auto sub_step_start_time_ms = sub_step_end_time_ms_;
+#if 0
   LOG("sub_step_start_time_ms=%u now_ms=%u", sub_step_start_time_ms, now_ms);
-  sub_step_end_time_ms_ = sub_step_start_time_ms + profileStep->sub_step_ms;
-  LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
-  state(State::sub_step_wait);
-#else
-  if (profileStep->step_ms) {
-    sub_step_end_time_ms_ += profileStep->sub_step_ms;
-    LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
-    state(State::sub_step_wait);
-  } else {
-    state(State::sub_step_measure);
-  }
 #endif
+  sub_step_end_time_ms_ = sub_step_start_time_ms + profileStep->sub_step_ms;
+#if 0
+  LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
+#endif
+  state(State::sub_step_wait);
 }
