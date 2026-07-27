@@ -1022,7 +1022,6 @@ struct ELConfig {
 
 struct ProfileStep
 {
-
   uint32_t step_ms;
    int32_t I_A;
   uint32_t sub_step_ms;
@@ -1036,7 +1035,7 @@ struct ProfileStep
 
 
   uint32_t substeps_count_ = 0;
-  uint32_t measure_period_ms_;
+//  uint32_t measure_period_ms_;
   //PSConfig psconfig_;
   ELConfig elconfig_;
 
@@ -1208,7 +1207,8 @@ struct Test
 {
   unsigned step_;
   unsigned sub_step_;
-  uint32_t start_time_ms_;
+  uint32_t test_start_time_ms_;
+  uint32_t step_end_time_ms_;
   uint32_t sub_step_end_time_ms_;
   uint32_t spi_timeout_time_ms_;
 
@@ -1350,8 +1350,7 @@ void log(const char *file, unsigned line, const char * function, const char * fo
   va_start(argsList, format);
 
   constexpr size_t buffer_size = 172;
-  static
-  char buffer[buffer_size];
+  static char buffer[buffer_size];
   const int vsnprintf_r = vsnprintf(buffer, sizeof(buffer), format, argsList);
   log_write(line, function, buffer);
 
@@ -2936,9 +2935,14 @@ static size_t SensorDevice_Data_report_one(
   return used;
 }
 
+/*
+    now_ms
+    spiDevice.transfer_start_time_ms_
+    spiDevice.transfer_finish_time_ms_
+*/
 #define SensorDevices_Data_STRLEN ( \
   CONSTSTRLEN("/TEST/SPI") \
-  + CONSTSTRLEN("  1234567890") \
+  + CONSTSTRLEN("  123456789") \
   + CONSTSTRLEN("  123456789") \
   + CONSTSTRLEN("  123456789") \
   + ( \
@@ -2948,20 +2952,31 @@ static size_t SensorDevice_Data_report_one(
   + CONSTSTRLEN("  FF\n") \
 )
 
-static void SensorDevices_Data_report_all(uint32_t test_start_time_ms)
+static void SensorDevices_Data_report_all(
+    uint32_t now_ms,
+    uint32_t test_start_time_ms)
 {
   static char buffer[SensorDevices_Data_STRLEN+1];
   size_t buffer_size = sizeof(buffer);
 
+#if 0
   const auto us1 = esp_timer_get_time(); // uint64_t
   const auto availableForWrite1 = cn_uartConfig.availableForWrite();
+#endif
 
   size_t used = safe_snprintf(buffer, buffer_size, "/TEST/SPI");
+#if 0
   if (buffer_size > used) {
     const size_t left = buffer_size - used;
     used += safe_snprintf(&buffer[used], left, "  %10" PRIu64, us1);
   }
+#endif
 
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, " %9u",
+        now_ms - test_start_time_ms);
+  }
   if (buffer_size > used) {
     const size_t left = buffer_size - used;
     used += safe_snprintf(&buffer[used], left, " %9u",
@@ -2992,12 +3007,14 @@ static void SensorDevices_Data_report_all(uint32_t test_start_time_ms)
     Serial.write(buffer, buffer_size - 1);
     LOG("ERROR: buffer overflow (buffer_size=%zu required=%zu)", buffer_size, used + 1);
   }
+#if 0
   const auto availableForWrite2 = cn_uartConfig.availableForWrite();
   const auto us2 = esp_timer_get_time(); // uint64_t
   LOG("availableForWrite1=%u - availableForWrite2=%u =%i",
       availableForWrite1, availableForWrite2,
       int(availableForWrite1) - int(availableForWrite2));
   LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, us2, us1, us2 - us1);
+#endif
 }
 
 } // namespace rpi
@@ -3015,9 +3032,11 @@ void Test::on_state_idle(uint32_t now_ms)
 
       // --- 'test_init' ---
 
-      // timings for all measurement sub steps will be based on 'test_start'
-      // time
-      start_time_ms_ = sub_step_end_time_ms_ = now_ms;
+      // timings for all steps and all measurement sub steps will be based on
+      // 'test_start' time
+      test_start_time_ms_   = now_ms;
+      step_end_time_ms_     = now_ms;
+//    sub_step_end_time_ms_ = now_ms;
 
       // --- 'step_0' ---
       step_ = 0;
@@ -3033,6 +3052,23 @@ void Test::on_state_step_init(uint32_t now_ms)
 
   const ProfileStep * profileStep = &profileSteps_[step_];
 
+  /*
+    'step_end_time_ms_' shall be relative to 'step [planned] start time'.
+
+    Here 'step_end_time_ms_' contains previous step 'planned' end time. It also
+    acts as current step 'planned' start time and can differ from 'now_ms' due
+    to slow CPU.
+  */
+  const auto step_start_time_ms = step_end_time_ms_;
+  LOG("DEBUG: step_start_time_ms=%u '%s' now_ms=%u",
+      step_start_time_ms,
+      (step_start_time_ms == now_ms) ? "==" : "!=",
+      now_ms);
+  sub_step_end_time_ms_ = step_start_time_ms;
+
+  step_end_time_ms_ += profileStep->step_ms;
+  LOG(". step_end_time_ms_=%u", step_end_time_ms_);
+
   // set PS/EL configs
   change_PS_EL_configs(profileStep);
 
@@ -3043,15 +3079,15 @@ void Test::on_state_step_init(uint32_t now_ms)
 }
 
 /*
-    if !substeps_count_ skip waiting and jump directly to 'sub_step_measure'.
+    if !step_ms skip waiting and jump directly to 'sub_step_measure'.
 
-    '!substeps_count_' can be useful to do measurements at the beginning of the
+    '!step_ms' can be useful to do measurements at the beginning of the
     test immediately after changing PS and EL configs.
 
-    if !measure_period_ms_ then next '*_sub_step_end' will be quickly executed
+    if !sub_step_ms then next '*_sub_step_end' will be quickly executed
     just after few 'on_loop'.
 
-    '!measure_period_ms_' can be useful to do multiple repeated measurementsat
+    '!sub_step_ms' can be useful to do multiple repeated measurementsat
     the beginning of the test immediately after changing PS and EL configs.
 */
 
@@ -3060,13 +3096,29 @@ void Test::on_state_sub_step_init(uint32_t now_ms)
   // --- 'sub_step_init' ---
 
   const ProfileStep * profileStep = &profileSteps_[step_];
-  if (profileStep->substeps_count_) {
-    sub_step_end_time_ms_ += profileStep->measure_period_ms_;
+#if 1
+  /*
+    'sub_step_end_time_ms_' shall be relative to 'sub step [planned] start
+    time'.
+
+    Here 'sub_step_end_time_ms_' contains previous sub step 'planned' end time.
+    It also acts as current sub step 'planned' start time and can differ from
+    'now_ms' due to slow CPU.
+  */
+  const auto sub_step_start_time_ms = sub_step_end_time_ms_;
+  LOG("sub_step_start_time_ms=%u now_ms=%u", sub_step_start_time_ms, now_ms);
+  sub_step_end_time_ms_ = sub_step_start_time_ms + profileStep->sub_step_ms;
+  LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
+  state(State::sub_step_wait);
+#else
+  if (profileStep->step_ms) {
+    sub_step_end_time_ms_ += profileStep->sub_step_ms;
     LOG(". sub_step_end_time_ms_=%u", sub_step_end_time_ms_);
     state(State::sub_step_wait);
   } else {
     state(State::sub_step_measure);
   }
+#endif
 }
 
 // Long running state. Check for user's abort request.
@@ -3130,7 +3182,7 @@ void Test::on_state_spi_wait(uint32_t now_ms)
 #endif
       // report sensors' data
       //SensorDevices_Data_report_all();
-      rpi::SensorDevices_Data_report_all(/*Test::*/start_time_ms_);
+      rpi::SensorDevices_Data_report_all(now_ms, test_start_time_ms_);
 
       // start next sub step
       state(State::sub_step_next);
@@ -3150,8 +3202,8 @@ void Test::on_state_sub_step_next(uint32_t now_ms)
   const ProfileStep * profileStep = &profileSteps_[step_];
   ++sub_step_;
   LOG(". sub_step_=%u", sub_step_);
-  if (sub_step_ < profileStep->substeps_count_) {
-    sub_step_end_time_ms_ += profileStep->measure_period_ms_;
+  if (now_ms < step_end_time_ms_) {
+//  sub_step_end_time_ms_ += profileStep->sub_step_ms;
     state(State::sub_step_init);
   } else {
     LOG("--- step_=%u finished -- start next step (change PS and EL configs) ...", step_);
@@ -3224,9 +3276,9 @@ void test_abort(const char * args)
 void Test::dump() const
 {
   hex_dump( (const uint8_t*)this, sizeof(*this));
-  LOG("step=%u sub_step=%u start_time_ms=%u sub_step_end_time_ms=%u"
+  LOG("step=%u sub_step=%u test_start_time_ms=%u sub_step_end_time_ms=%u"
       " spi_timeout_time_ms=%u run=%i abort=%i state=%u/%s",
-      step_, sub_step_, start_time_ms_, sub_step_end_time_ms_,
+      step_, sub_step_, test_start_time_ms_, sub_step_end_time_ms_,
       spi_timeout_time_ms_, run_, abort_, state_, to_string(state_));
 }
 

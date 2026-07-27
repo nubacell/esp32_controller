@@ -5,8 +5,7 @@ void log(const char *file, unsigned line, const char * function, const char * fo
   va_start(argsList, format);
 
   constexpr size_t buffer_size = 172;
-  static
-  char buffer[buffer_size];
+  static char buffer[buffer_size];
   const int vsnprintf_r = vsnprintf(buffer, sizeof(buffer), format, argsList);
   log_write(line, function, buffer);
 

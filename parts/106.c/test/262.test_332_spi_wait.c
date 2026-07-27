@@ -30,7 +30,7 @@ void Test::on_state_spi_wait(uint32_t now_ms)
 #endif
       // report sensors' data
       //SensorDevices_Data_report_all();
-      rpi::SensorDevices_Data_report_all(/*Test::*/start_time_ms_);
+      rpi::SensorDevices_Data_report_all(now_ms, test_start_time_ms_);
 
       // start next sub step
       state(State::sub_step_next);

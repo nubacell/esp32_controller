@@ -4,7 +4,8 @@ struct Test
 {
   unsigned step_;
   unsigned sub_step_;
-  uint32_t start_time_ms_;
+  uint32_t test_start_time_ms_;
+  uint32_t step_end_time_ms_;
   uint32_t sub_step_end_time_ms_;
   uint32_t spi_timeout_time_ms_;
 

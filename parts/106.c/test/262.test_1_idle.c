@@ -12,9 +12,11 @@ void Test::on_state_idle(uint32_t now_ms)
 
       // --- 'test_init' ---
 
-      // timings for all measurement sub steps will be based on 'test_start'
-      // time
-      start_time_ms_ = sub_step_end_time_ms_ = now_ms;
+      // timings for all steps and all measurement sub steps will be based on
+      // 'test_start' time
+      test_start_time_ms_   = now_ms;
+      step_end_time_ms_     = now_ms;
+//    sub_step_end_time_ms_ = now_ms;
 
       // --- 'step_0' ---
       step_ = 0;

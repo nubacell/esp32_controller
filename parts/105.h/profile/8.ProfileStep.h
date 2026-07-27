@@ -1,7 +1,6 @@
 
 struct ProfileStep
 {
-
   uint32_t step_ms;
    int32_t I_A;
   uint32_t sub_step_ms;
@@ -15,7 +14,7 @@ struct ProfileStep
 
 
   uint32_t substeps_count_ = 0;
-  uint32_t measure_period_ms_;
+//  uint32_t measure_period_ms_;
   //PSConfig psconfig_;
   ELConfig elconfig_;
 
