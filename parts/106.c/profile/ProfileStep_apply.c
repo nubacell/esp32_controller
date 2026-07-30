@@ -7,10 +7,10 @@ void ProfileStep::apply(const char * args)
   step_ms = command_args_to_u32(tail, &tail);
 
   if (!tail || !*tail) { return; }
-  I_A = command_args_to_i32(tail, &tail);
+  sub_step_ms = command_args_to_u32(tail, &tail);
 
   if (!tail || !*tail) { return; }
-  sub_step_ms = command_args_to_u32(tail, &tail);
+  I_A = command_args_to_i32(tail, &tail);
 
   if (!tail || !*tail) { return; }
   PS_V_max = command_args_to_u32(tail, &tail);

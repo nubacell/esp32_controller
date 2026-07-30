@@ -1,12 +1,27 @@
 
-#define PxLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
-struct PxDevice
+#define XX_LOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
+struct XX_Device
   : UartDevice
 {
   const char * const expected_id;
   uint32_t timeout_time_ms = 0;
 
-  PxDevice(
+#if 0
+  bool cmd_verbose_ = false;
+#else
+  bool cmd_verbose_ = true;
+#endif
+
+#if 0
+  bool cmd_verify_ = false;
+#else
+  bool cmd_verify_ = true;
+#endif
+
+  bool on_ = false;
+  inline bool isOn() const { return on_; }
+
+  XX_Device(
       const UartConfig * uartConfig,
       const char * const expected_id_)
     : UartDevice(uartConfig)
@@ -79,8 +94,12 @@ struct PxDevice
   void write_cmd(const char * s) const {
     uartConfig_->write(s);
     uartConfig_->write('\n');
+    if (cmd_verbose_) {
+      XX_LOG("cmd='%s'", s);
+    }
   }
 
+#if 0
   void command_try(
     const char * const command,
     unsigned answer_lines_count)
@@ -89,9 +108,9 @@ struct PxDevice
     while (answer_lines_count--) {
       const uint32_t timeout_ms = 100;
       if (!uartConfig_->readLine_z(buffer_, sizeof(buffer_), timeout_ms)) {
-        PxLOG("'%s' -> '%s'", command, "timeout");
+        XX_LOG("'%s' -> '%s'", command, "timeout");
       } else {
-        PxLOG("'%s' -> '%s'", command, buffer_);
+        XX_LOG("'%s' -> '%s'", command, buffer_);
       }
     }
   }
@@ -105,17 +124,17 @@ struct PxDevice
       command_try(command, 1);
     }
   }
-
+#endif
 
   void on_state_init(uint32_t now_ms)
   {
-    PxLOG("");
+    XX_LOG("");
     state = State(unsigned(state)+1); // ++state;
   }
 
   void on_state_sync(uint32_t now_ms)
   {
-    PxLOG("");
+    XX_LOG("");
     on_loop_readLine_reset();
 
     // FIXME: remove the following from 'production' build.
@@ -136,20 +155,20 @@ struct PxDevice
 
   void on_state_sync_discard_input(uint32_t now_ms)
   {
-    //PxLOG("");
+    //XX_LOG("");
     if (on_loop_readLine()) {
-      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      XX_LOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
       on_loop_readLine_reset();
     }
     if (timeout_time_ms <= now_ms) {
-      PxLOG("%s %s", "sync/discard_input", "timeout/success");
+      XX_LOG("%s %s", "sync/discard_input", "timeout/success");
       state = State(unsigned(state)+1); // ++state;
     }
   }
 
   void on_state_identify(uint32_t now_ms)
   {
-    PxLOG("");
+    XX_LOG("");
     on_loop_readLine_reset();
 
     write_cmd(CMD_IDENTIFY);
@@ -163,9 +182,9 @@ struct PxDevice
   // assuming 'sizeof(buffer) > 0'
   void on_state_identify_read_answer(uint32_t now_ms)
   {
-    //PxLOG("");
+    //XX_LOG("");
     if (on_loop_readLine()) {
-      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      XX_LOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
       if (eol_) {
 
         // TODO: check id match
@@ -179,7 +198,7 @@ struct PxDevice
         state = State(unsigned(state)+1); // ++state;
       }
     } else if (timeout_time_ms <= now_ms) {
-      PxLOG("%s %s id='%s'", "identify", "timeout", buffer_);
+      XX_LOG("%s %s id='%s'", "identify", "timeout", buffer_);
 
       // TODO: Mark device as unusable.
       // TODO: Retry identification after some delay.
@@ -192,16 +211,16 @@ struct PxDevice
 
   void on_state_idle(uint32_t now_ms)
   {
-    //PxLOG("");
+    //XX_LOG("");
     if (on_loop_readLine()) {
-      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      XX_LOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
       on_loop_readLine_reset();
     }
   }
 
   void on_state_active(uint32_t now_ms)
   {
-    PxLOG("");
+    XX_LOG("");
   }
 
   void on_loop(uint32_t now_ms) override
@@ -217,7 +236,7 @@ struct PxDevice
       CASE_CALL(active)
 #undef CASE_CALL
       default:
-        PxLOG("");
+        XX_LOG("");
         break;
     }
   }
@@ -226,7 +245,6 @@ struct PxDevice
   void id() const
   {
     const char * cmd = CMD_IDENTIFY;
-    LOG("cmd='%s'", cmd);
     write_cmd(cmd);
   }
 };

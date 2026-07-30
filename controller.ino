@@ -136,6 +136,11 @@ size_t cvt_u32tos(char* buffer, uint32_t number, uint8_t base, bool upperCase);
 size_t safe_vsnprintf(char * buffer, size_t size, const char * format, va_list ap);
 size_t safe_snprintf(char * buffer, size_t size, const char * format, ...);
 
+int sign(int v)
+{
+  return (v < int(0)) ? -1 : (v > int(0)) ? +1 : 0;
+}
+
 const char * skip_whitespace(const char * p);
 char * skip_whitespace(char * p);
 
@@ -438,14 +443,29 @@ struct CN_Device
   }
 };
 
-#define PxLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
-struct PxDevice
+#define XX_LOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
+struct XX_Device
   : UartDevice
 {
   const char * const expected_id;
   uint32_t timeout_time_ms = 0;
 
-  PxDevice(
+#if 0
+  bool cmd_verbose_ = false;
+#else
+  bool cmd_verbose_ = true;
+#endif
+
+#if 0
+  bool cmd_verify_ = false;
+#else
+  bool cmd_verify_ = true;
+#endif
+
+  bool on_ = false;
+  inline bool isOn() const { return on_; }
+
+  XX_Device(
       const UartConfig * uartConfig,
       const char * const expected_id_)
     : UartDevice(uartConfig)
@@ -518,8 +538,12 @@ struct PxDevice
   void write_cmd(const char * s) const {
     uartConfig_->write(s);
     uartConfig_->write('\n');
+    if (cmd_verbose_) {
+      XX_LOG("cmd='%s'", s);
+    }
   }
 
+#if 0
   void command_try(
     const char * const command,
     unsigned answer_lines_count)
@@ -528,9 +552,9 @@ struct PxDevice
     while (answer_lines_count--) {
       const uint32_t timeout_ms = 100;
       if (!uartConfig_->readLine_z(buffer_, sizeof(buffer_), timeout_ms)) {
-        PxLOG("'%s' -> '%s'", command, "timeout");
+        XX_LOG("'%s' -> '%s'", command, "timeout");
       } else {
-        PxLOG("'%s' -> '%s'", command, buffer_);
+        XX_LOG("'%s' -> '%s'", command, buffer_);
       }
     }
   }
@@ -544,17 +568,17 @@ struct PxDevice
       command_try(command, 1);
     }
   }
-
+#endif
 
   void on_state_init(uint32_t now_ms)
   {
-    PxLOG("");
+    XX_LOG("");
     state = State(unsigned(state)+1); // ++state;
   }
 
   void on_state_sync(uint32_t now_ms)
   {
-    PxLOG("");
+    XX_LOG("");
     on_loop_readLine_reset();
 
     // FIXME: remove the following from 'production' build.
@@ -575,20 +599,20 @@ struct PxDevice
 
   void on_state_sync_discard_input(uint32_t now_ms)
   {
-    //PxLOG("");
+    //XX_LOG("");
     if (on_loop_readLine()) {
-      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      XX_LOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
       on_loop_readLine_reset();
     }
     if (timeout_time_ms <= now_ms) {
-      PxLOG("%s %s", "sync/discard_input", "timeout/success");
+      XX_LOG("%s %s", "sync/discard_input", "timeout/success");
       state = State(unsigned(state)+1); // ++state;
     }
   }
 
   void on_state_identify(uint32_t now_ms)
   {
-    PxLOG("");
+    XX_LOG("");
     on_loop_readLine_reset();
 
     write_cmd(CMD_IDENTIFY);
@@ -602,9 +626,9 @@ struct PxDevice
   // assuming 'sizeof(buffer) > 0'
   void on_state_identify_read_answer(uint32_t now_ms)
   {
-    //PxLOG("");
+    //XX_LOG("");
     if (on_loop_readLine()) {
-      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      XX_LOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
       if (eol_) {
 
         // TODO: check id match
@@ -618,7 +642,7 @@ struct PxDevice
         state = State(unsigned(state)+1); // ++state;
       }
     } else if (timeout_time_ms <= now_ms) {
-      PxLOG("%s %s id='%s'", "identify", "timeout", buffer_);
+      XX_LOG("%s %s id='%s'", "identify", "timeout", buffer_);
 
       // TODO: Mark device as unusable.
       // TODO: Retry identification after some delay.
@@ -631,16 +655,16 @@ struct PxDevice
 
   void on_state_idle(uint32_t now_ms)
   {
-    //PxLOG("");
+    //XX_LOG("");
     if (on_loop_readLine()) {
-      PxLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+      XX_LOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
       on_loop_readLine_reset();
     }
   }
 
   void on_state_active(uint32_t now_ms)
   {
-    PxLOG("");
+    XX_LOG("");
   }
 
   void on_loop(uint32_t now_ms) override
@@ -656,7 +680,7 @@ struct PxDevice
       CASE_CALL(active)
 #undef CASE_CALL
       default:
-        PxLOG("");
+        XX_LOG("");
         break;
     }
   }
@@ -665,40 +689,41 @@ struct PxDevice
   void id() const
   {
     const char * cmd = CMD_IDENTIFY;
-    LOG("cmd='%s'", cmd);
     write_cmd(cmd);
   }
 };
 
 struct PS_Device
-  : PxDevice
+  : XX_Device
 {
   PS_Device(
       const UartConfig * uartConfig_,
       const char * const expected_id_)
-    : PxDevice(uartConfig_, expected_id_)
+    : XX_Device(uartConfig_, expected_id_)
   {}
 
-  void v() const;
-  void c() const;
   void ovp() const;
   void ocp() const;
   void output() const;
 
   void x(const char * s, double v) const;
 
-  void v(double v) const;
-  void c(double v) const;
   void ovp(double v) const;
   void ocp(double v) const;
-  void output_ON() const;
-  void output_OFF() const;
+
+  void on();
+  void off();
+
+  void v() const;
+  void v(double v) const;
+  void c() const;
+  void c(double v) const;
 };
 
 extern PS_Device psDevice;
 
 struct EL_Device
-  : PxDevice
+  : XX_Device
 {
   uint8_t function_;
   uint8_t cc_range_;
@@ -707,207 +732,38 @@ struct EL_Device
   EL_Device(
       const UartConfig * uartConfig_,
       const char * const expected_id_)
-    : PxDevice(uartConfig_, expected_id_)
+    : XX_Device(uartConfig_, expected_id_)
   {}
 
-  void function() const
-  {
-    const char * cmd = "INPut:FUNCtion?";
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
+  void clear_errors() const;
 
-  void function_xx(unsigned v)
-  {
-    char cmd[sizeof("INPut:FUNCtion XX")];
-    snprintf(cmd, sizeof(cmd), "INPut:FUNCtion %s", el_function_to_string(v));
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-    function_ = 0;
-  }
+  void function() const;
+  void function_xx(unsigned v);
+  void function_CC();
+  void function_CV();
 
-  void function_CC()
-  {
-    function_xx(0);
-  }
-
-  void function_CV()
-  {
-    function_xx(1);
-  }
-
-  /*
-    Constant Current
-
-    Example: Set the load to the constant current function, and the main current
-    value to 50A, and the programming command is as follows:
-
-    INPut:FUNCtion CC                       // Switch to the constant current test function
-    STATic:CC:RANGe 0                       // Set the constant current range to the high range
-    STATic:CC:HIGH:LEVel 50.0               // Set the load current to 50.0A
-    STATic:CC:HIGH:SLEWRate:RAIse 600       // Set the rise slew to 600.0A/ms
-    STATic:CC:HIGH:SLEWRate:FALL 600        // Set the fall slew to 600.0A/ms
-    INPut:STATe ON                          // Turn on the load input
-  */
   // 0-high range, 1-low range, 2-medium range
-  void cc_range() const
-  {
-    const char * cmd = "STATic:CC:RANGe?";
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
+  void cc_range() const;
+  void cc_range(unsigned v);
+  void cc_xx_level(unsigned range) const;
+  void cc_level() const;
+  void cc_xx_level(unsigned range, double v) const;
+  void cc_level(double v) const;
 
-  void cc_range(unsigned v)
-  {
-    char cmd[sizeof("STATic:CC:RANGe X")];
-    snprintf(cmd, sizeof(cmd), "STATic:CC:RANGe %u", v);
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-    cc_range_ = v;
-  }
-
-  void cc_xx_level(unsigned range) const
-  {
-    char cmd[sizeof("STATic:CC:xxxx:LEVel?")];
-    snprintf(cmd, sizeof(cmd), "STATic:CC:%s:LEVel?", el_range_to_string(range));
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-
-  void cc_level() const
-  {
-    cc_xx_level(cc_range_);
-  }
-
-  /*
-    u2_lf STATic:CC:HIGH:LEVel 1.12345 OK
-    u2_lf STATic:CC:HIGH:LEVel 12.1234 OK
-    u2_lf STATic:CC:HIGH:LEVel 123.123 OK
-    u2_lf STATic:CC:HIGH:LEVel 1234.12 NG
-  */
-  void cc_xx_level(unsigned range, double v) const
-  {
-    char cmd[sizeof("STATic:CC:xxxx:LEVel 123.123")];
-    snprintf(cmd, sizeof(cmd), "STATic:CC:%s:LEVel %.5f", el_range_to_string(range), v);
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-
-  void cc_level(double v) const
-  {
-    cc_xx_level(cc_range_, v);
-  }
-
-  /*
-    Constant Voltage
-
-    Example: Set the load to the constant voltage function, and the main value of
-    the constant voltage to 30V. The programming command is as follows:
-
-    INPut:FUNCtion CV             // Switch to the constant voltage test function
-    STATic:CV:RANGe 0             // Set the constant current range to the high range
-    STATic:CV:RATe 0              // Set the constant voltage response speed
-    STATic:CV:HIGH:LEVel 50.0     // Set the load voltage to 50.0V
-    INPut:STATe ON                // Turn on the load input
-  */
   // 0-high range, 1-low range, 2-medium range
-  void cv_range() const
-  {
-    const char * cmd = "STATic:CV:RANGe?";
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
+  void cv_range() const;
+  void cv_range(unsigned v);
+  void cv_xx_level(unsigned range) const;
+  void cv_level() const;
+  void cv_xx_level(unsigned range, double v) const;
+  void cv_level(double v) const;
+  void get_input() const;
 
-  void cv_range(unsigned v)
-  {
-    char cmd[sizeof("STATic:CV:RANGe X")];
-    snprintf(cmd, sizeof(cmd), "STATic:CV:RANGe %u", v);
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-    cv_range_ = v;
-  }
+  void on();
+  void off();
 
-  void cv_xx_level(unsigned range) const
-  {
-    char cmd[sizeof("STATic:CV:xxxx:LEVel?")];
-    snprintf(cmd, sizeof(cmd), "STATic:CV:%s:LEVel?", el_range_to_string(range));
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-
-  void cv_level() const
-  {
-    cv_xx_level(cv_range_);
-  }
-
-/*
-    u2_lf STATic:CV:HIGH:LEVel?
-    u2_lf STATic:CV:HIGH:LEVel 1.13245 OK
-    u2_lf STATic:CV:HIGH:LEVel 12.1324 OK
-    u2_lf STATic:CV:HIGH:LEVel 123.123 OK
-    u2_lf STATic:CV:HIGH:LEVel 1234.13 NG
-*/
-  void cv_xx_level(unsigned range, double v) const
-  {
-    char cmd[sizeof("STATic:CV:xxxx:LEVel 123.123")];
-    snprintf(cmd, sizeof(cmd), "STATic:CV:%s:LEVel %.5f", el_range_to_string(range), v);
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-
-  void cv_level(double v) const
-  {
-    cv_xx_level(cv_range_, v);
-  }
-
-  void get_input() const
-  {
-    const char * cmd = "INPut:STATe?";
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-
-  void set_input_ON() const
-  {
-    const char * cmd = "INPut:STATe ON";
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-
-  void set_input_OFF() const
-  {
-    const char * cmd = "INPut:STATe OFF";
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-
-#if 0
-  // SYST:LOC // Exit remote control mode and return to local control mode.
-  void release_control() const
-  {
-    //const char * cmd = "SYST:LOC";
-    const char * cmd = "SYSTem:LOCal";
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-#endif
-
-  void clear_errors() const
-  {
-    const char * cmd = "*CLS";
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-
-/*
-  // must be available from 'PxDevice'
-  void id() const
-  {
-    const char * cmd = CMD_IDENTIFY;
-    LOG("cmd='%s'", cmd);
-    write_cmd(cmd);
-  }
-*/
+  void c() const;
+  void c(double v);
 };
 
 extern EL_Device elDevice;
@@ -965,16 +821,6 @@ enum class PSState {
 };
 const char * to_string(PSState psstate);
 
-struct PSConfig {
-  PSState state_;
-  double i_;
-  double v_;
-
-  void dump() const {
-    LOG(". . %s state='%s' I=%.3f V=%.3f", "PS", to_string(state_), i_, v_);
-  }
-};
-
 // Note: We age going to use "EL" in "CC" mode only
 
 enum class ELState {
@@ -984,47 +830,11 @@ enum class ELState {
 };
 const char * to_string(ELState elstate);
 
-struct ELConfig {
-  ELState state_;
-  uint8_t range_;
-  double level_;
-
-  void dump() const {
-    LOG(". . %s state_=%u/'%s' range=%u/'%s' level=%.6f", "EL",
-        state_, to_string(state_), range_, el_range_to_string(range_), level_);
-  }
-
-  void apply(const char * args)
-  {
-    {
-      args = skip_whitespace(args);
-      char * endptr = NULL;
-      state_ = (ELState) strtoul(args, &endptr, 0);
-      if (!endptr || !*endptr) { return; }
-      args = endptr;
-    }
-    {
-      args = skip_whitespace(args);
-      char * endptr = NULL;
-      range_ = strtoul(args, &endptr, 0);
-      if (!endptr || !*endptr) { return; }
-      args = endptr;
-    }
-    {
-      args = skip_whitespace(args);
-      char * endptr = NULL;
-      level_ = strtod(args, &endptr);
-      if (!endptr || !*endptr) { return; }
-      args = endptr;
-    }
-  }
-};
-
 struct ProfileStep
 {
   uint32_t step_ms;
-   int32_t I_A;
   uint32_t sub_step_ms;
+   int32_t I_A;
   uint32_t PS_V_max;
   uint32_t cBat_max_mV;
   uint32_t cBat_min_mV;
@@ -1033,12 +843,6 @@ struct ProfileStep
   uint32_t cBat_T_max_C;
   uint32_t aBat_T_max_C;
 
-
-  uint32_t substeps_count_ = 0;
-//  uint32_t measure_period_ms_;
-  //PSConfig psconfig_;
-  ELConfig elconfig_;
-
   void dump() const;
   void apply(const char * args);
 };
@@ -1046,7 +850,8 @@ struct ProfileStep
 constexpr uint32_t profile_steps_count_max = 100;
 static ProfileStep profileSteps_[profile_steps_count_max];
 
-struct Profile {
+struct Profile
+{
   uint32_t steps_count_ = 0;
 
   void dump() const {
@@ -1062,7 +867,8 @@ struct Profile {
 
   void steps_count(uint32_t new_steps_count) {
     if (new_steps_count > profile_steps_count_max) {
-      LOG("new_steps_count=%u > profile_steps_count_max=%u", new_steps_count, profile_steps_count_max);
+      LOG("new_steps_count=%u > profile_steps_count_max=%u",
+          new_steps_count, profile_steps_count_max);
     } else {
       steps_count_ = new_steps_count;
     }
@@ -1202,6 +1008,11 @@ typedef struct SensorDeviceData_s {
 */
 #define LGT8F_SPI_DATA_SIZE OFFSET_OF_END(SensorDeviceData_t, checksum)
 
+void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i);
+void analog_report_all(const SensorDeviceData_t & deviceData);
+void SensorDevice_Data_report_one(unsigned i);
+void SensorDevices_Data_report_all();
+
 struct Test
   : Runnable
 {
@@ -1211,6 +1022,9 @@ struct Test
   uint32_t step_end_time_ms_;
   uint32_t sub_step_end_time_ms_;
   uint32_t spi_timeout_time_ms_;
+
+  int32_t I_A = 0;
+  uint32_t PS_V_max = 0;
 
   bool run_;
   bool abort_;
@@ -2217,8 +2031,8 @@ void profile_step(const char * args)
   if (!*args) {
     LOG("format: step_number"
         " step_ms"
-        " I_A"
         " sub_step_ms"
+        " I_A"
         " PS_V_max"
         " cBat_max_mV"
         " cBat_min_mV"
@@ -2250,10 +2064,10 @@ void ProfileStep::apply(const char * args)
   step_ms = command_args_to_u32(tail, &tail);
 
   if (!tail || !*tail) { return; }
-  I_A = command_args_to_i32(tail, &tail);
+  sub_step_ms = command_args_to_u32(tail, &tail);
 
   if (!tail || !*tail) { return; }
-  sub_step_ms = command_args_to_u32(tail, &tail);
+  I_A = command_args_to_i32(tail, &tail);
 
   if (!tail || !*tail) { return; }
   PS_V_max = command_args_to_u32(tail, &tail);
@@ -2281,8 +2095,8 @@ void ProfileStep::dump() const
 {
   LOG(". this=%p"
       " step_ms=%u"
-      " I_A=%i"
       " sub_step_ms=%u"
+      " I_A=%i"
       " PS_V_max=%u"
       " cBat_max_mV=%u"
       " cBat_min_mV=%u"
@@ -2292,8 +2106,8 @@ void ProfileStep::dump() const
       " aBat_T_max_C=%u",
       this,
       step_ms,
-      I_A,
       sub_step_ms,
+      I_A,
       PS_V_max,
       cBat_max_mV,
       cBat_min_mV,
@@ -2838,7 +2652,7 @@ bool spi_chip_down()
   return r;
 }
 
-static void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
+void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
 {
   const auto analogSignal = deviceData.analogSignals[i];
   Serial.print(" ");
@@ -2847,7 +2661,7 @@ static void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
   Serial.print(analogSignal * 0.001, 3);
 }
 
-static void analog_report_all(const SensorDeviceData_t & deviceData)
+void analog_report_all(const SensorDeviceData_t & deviceData)
 {
   for (unsigned i = 0; i < ANALOG_SIGNALS_COUNT; ++i) {
     analog_report_one(deviceData, i);
@@ -2856,7 +2670,7 @@ static void analog_report_all(const SensorDeviceData_t & deviceData)
 }
 
 // byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
-static void SensorDevice_Data_report_one(unsigned i)
+void SensorDevice_Data_report_one(unsigned i)
 {
   const auto & deviceData = *(SensorDeviceData_t*)(&spi_rx_buffers[i][0]);
 
@@ -2877,7 +2691,7 @@ static void SensorDevice_Data_report_one(unsigned i)
   analog_report_all(deviceData);
 }
 
-static void SensorDevices_Data_report_all()
+void SensorDevices_Data_report_all()
 {
   for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
     SensorDevice_Data_report_one(i);
@@ -3305,24 +3119,66 @@ void test_dump(const char * args)
 
 void Test::change_PS_EL_configs(const ProfileStep * profileStep)
 {
-  if (ELState::off == profileStep->elconfig_.state_) {
-    LOG("deactivating EL");
-    elDevice.set_input_OFF();
-  } else if (ELState::CC == profileStep->elconfig_.state_) {
-    LOG("changing EL config");
-    elDevice.cc_range(profileStep->elconfig_.range_);
-    elDevice.cc_level(profileStep->elconfig_.level_);
-    elDevice.cc_level();
-    elDevice.set_input_ON();
-  } else {
-    LOG("ERROR: Unexpected EL state");
+  if (PS_V_max != profileStep->PS_V_max) {
+    LOG("'PS_V_max' change (%u -> %u)", PS_V_max, profileStep->PS_V_max);
+    psDevice.off();
+    elDevice.off();
+    if (profileStep->I_A > 0) {
+      psDevice.v(profileStep->PS_V_max);
+      psDevice.c(+ profileStep->I_A);
+      elDevice.c(0);
+      psDevice.on();
+    } else if (profileStep->I_A < 0) {
+      psDevice.v(profileStep->PS_V_max);
+      psDevice.c(0);
+      elDevice.c(- profileStep->I_A);
+      elDevice.on();
+    } else {
+      psDevice.c(0);
+      elDevice.c(0);
+    }
+  } else
+  if (sign(I_A) != sign(profileStep->I_A)) {
+    LOG("'I_A' direction change (%i -> %i)", I_A, profileStep->I_A);
+    if (profileStep->I_A > 0) {
+      elDevice.c(0);
+      psDevice.c(+ profileStep->I_A);
+      psDevice.on();
+    } else
+    if (profileStep->I_A < 0) {
+      psDevice.c(0);
+      elDevice.c(- profileStep->I_A);
+      elDevice.on();
+    } else {
+      psDevice.c(0);
+      elDevice.c(0);
+    }
+  } else
+  if (I_A != profileStep->I_A) {
+    LOG("'I_A' value change (%i -> %i)", I_A, profileStep->I_A);
+    if (profileStep->I_A > 0) {
+      psDevice.c(+ profileStep->I_A);
+      psDevice.on();
+    } else
+    if (profileStep->I_A < 0) {
+      elDevice.c(- profileStep->I_A);
+      elDevice.on();
+    } else {
+      psDevice.c(0);
+      elDevice.c(0);
+    }
   }
+  PS_V_max = profileStep->PS_V_max;
+  I_A = profileStep->I_A;
 }
 
 void Test::deactivate_PS_EL()
 {
   LOG("deactivating EL");
-  elDevice.set_input_OFF();
+  psDevice.off();
+  elDevice.off();
+  PS_V_max = 0;
+  I_A = 0;
 }
 
 void Test::on_loop(uint32_t now_ms)
@@ -3392,38 +3248,251 @@ void xx_uartConfigs_init() {
   }
 }
 
+// TODO: Use 'enum class' instead of 'unsigned'
+
+const char * const el_functions[] = { "CC", "CV", };
+
+const char * el_function_to_string(unsigned function)
+{
+  return el_functions[function];
+}
+
+
+const char * const el_ranges[] = { "HIGH", "LOW", "MID", };
+
+const char * el_range_to_string(unsigned cc_range)
+{
+  return el_ranges[cc_range];
+}
+
+void EL_Device::clear_errors() const
+{
+  const char * cmd = "*CLS";
+  write_cmd(cmd);
+}
+
+void EL_Device::function() const
+{
+  const char * cmd = "INPut:FUNCtion?";
+  write_cmd(cmd);
+}
+
+void EL_Device::function_xx(unsigned v)
+{
+  function_ = v;
+
+  char cmd[sizeof("INPut:FUNCtion XX")];
+  snprintf(cmd, sizeof(cmd), "INPut:FUNCtion %s", el_function_to_string(v));
+  write_cmd(cmd);
+
+  if (cmd_verify_) { function(); }
+}
+
+void EL_Device::function_CC()
+{
+  function_xx(0);
+}
+
+void EL_Device::function_CV()
+{
+  function_xx(1);
+}
+
+/*
+  Constant Current
+
+  Example: Set the load to the constant current function, and the main current
+  value to 50A, and the programming command is as follows:
+
+  INPut:FUNCtion CC                       // Switch to the constant current test function
+  STATic:CC:RANGe 0                       // Set the constant current range to the high range
+  STATic:CC:HIGH:LEVel 50.0               // Set the load current to 50.0A
+  STATic:CC:HIGH:SLEWRate:RAIse 600       // Set the rise slew to 600.0A/ms
+  STATic:CC:HIGH:SLEWRate:FALL 600        // Set the fall slew to 600.0A/ms
+  INPut:STATe ON                          // Turn on the load input
+*/
+// 0-high range, 1-low range, 2-medium range
+void EL_Device::cc_range() const
+{
+  const char * cmd = "STATic:CC:RANGe?";
+  write_cmd(cmd);
+}
+
+void EL_Device::cc_range(unsigned v)
+{
+  cc_range_ = v;
+
+  char cmd[sizeof("STATic:CC:RANGe X")];
+  snprintf(cmd, sizeof(cmd), "STATic:CC:RANGe %u", v);
+  write_cmd(cmd);
+
+  if (cmd_verify_) { cc_range(); }
+}
+
+void EL_Device::cc_xx_level(unsigned range) const
+{
+  char cmd[sizeof("STATic:CC:xxxx:LEVel?")];
+  snprintf(cmd, sizeof(cmd), "STATic:CC:%s:LEVel?", el_range_to_string(range));
+  write_cmd(cmd);
+}
+
+void EL_Device::cc_level() const
+{
+  cc_xx_level(cc_range_);
+}
+
+/*
+  u2_lf STATic:CC:HIGH:LEVel 1.12345 OK
+  u2_lf STATic:CC:HIGH:LEVel 12.1234 OK
+  u2_lf STATic:CC:HIGH:LEVel 123.123 OK
+  u2_lf STATic:CC:HIGH:LEVel 1234.12 NG
+*/
+void EL_Device::cc_xx_level(unsigned range, double v) const
+{
+  char cmd[sizeof("STATic:CC:xxxx:LEVel 123.123")];
+  snprintf(cmd, sizeof(cmd), "STATic:CC:%s:LEVel %.5f", el_range_to_string(range), v);
+  write_cmd(cmd);
+
+  if (cmd_verify_) { cc_xx_level(range); }
+}
+
+void EL_Device::cc_level(double v) const
+{
+  cc_xx_level(cc_range_, v);
+}
+
+/*
+  Constant Voltage
+
+  Example: Set the load to the constant voltage function, and the main value of
+  the constant voltage to 30V. The programming command is as follows:
+
+  INPut:FUNCtion CV             // Switch to the constant voltage test function
+  STATic:CV:RANGe 0             // Set the constant current range to the high range
+  STATic:CV:RATe 0              // Set the constant voltage response speed
+  STATic:CV:HIGH:LEVel 50.0     // Set the load voltage to 50.0V
+  INPut:STATe ON                // Turn on the load input
+*/
+// 0-high range, 1-low range, 2-medium range
+void EL_Device::cv_range() const
+{
+  const char * cmd = "STATic:CV:RANGe?";
+  write_cmd(cmd);
+}
+
+void EL_Device::cv_range(unsigned v)
+{
+  cv_range_ = v;
+
+  char cmd[sizeof("STATic:CV:RANGe X")];
+  snprintf(cmd, sizeof(cmd), "STATic:CV:RANGe %u", v);
+  write_cmd(cmd);
+
+  if (cmd_verify_) { cv_range(); }
+}
+
+void EL_Device::cv_xx_level(unsigned range) const
+{
+  char cmd[sizeof("STATic:CV:xxxx:LEVel?")];
+  snprintf(cmd, sizeof(cmd), "STATic:CV:%s:LEVel?", el_range_to_string(range));
+  write_cmd(cmd);
+}
+
+void EL_Device::cv_level() const
+{
+  cv_xx_level(cv_range_);
+}
+
+/*
+    u2_lf STATic:CV:HIGH:LEVel?
+    u2_lf STATic:CV:HIGH:LEVel 1.13245 OK
+    u2_lf STATic:CV:HIGH:LEVel 12.1324 OK
+    u2_lf STATic:CV:HIGH:LEVel 123.123 OK
+    u2_lf STATic:CV:HIGH:LEVel 1234.13 NG
+*/
+void EL_Device::cv_xx_level(unsigned range, double v) const
+{
+  char cmd[sizeof("STATic:CV:xxxx:LEVel 123.123")];
+  snprintf(cmd, sizeof(cmd), "STATic:CV:%s:LEVel %.5f", el_range_to_string(range), v);
+  write_cmd(cmd);
+
+  if (cmd_verify_) { cv_xx_level(range); }
+}
+
+void EL_Device::cv_level(double v) const
+{
+  cv_xx_level(cv_range_, v);
+}
+
+void EL_Device::get_input() const
+{
+  const char * cmd = "INPut:STATe?";
+  write_cmd(cmd);
+}
+
+void EL_Device::on()
+{
+  if (on_) { return; }
+
+  const char * cmd = "INPut:STATe ON";
+  write_cmd(cmd);
+
+  on_ = true;
+
+  if (cmd_verify_) { get_input(); }
+}
+
+void EL_Device::off()
+{
+  if (!on_) { return; }
+
+  const char * cmd = "INPut:STATe OFF";
+  write_cmd(cmd);
+
+  on_ = false;
+
+  if (cmd_verify_) { get_input(); }
+}
+
+void EL_Device::c() const
+{
+  cc_range();
+  cc_level();
+}
+
+void EL_Device::c(double v)
+{
+  cc_range(0); // high range
+  cc_level(v);
+}
+
 void PS_Device::v() const
 {
   const char * cmd = "V1?";
-  LOG("cmd='%s'", cmd);
   write_cmd(cmd);
 }
 
 void PS_Device::c() const
 {
   const char * cmd = "I1?";
-  LOG("cmd='%s'", cmd);
   write_cmd(cmd);
 }
 
 void PS_Device::ovp() const
 {
   const char * cmd = "OVP1?";
-  LOG("cmd='%s'", cmd);
   write_cmd(cmd);
 }
 
 void PS_Device::ocp() const
 {
   const char * cmd = "OCP1?";
-  LOG("cmd='%s'", cmd);
   write_cmd(cmd);
 }
 
 void PS_Device::output() const
 {
   const char * cmd = "OP1?";
-  LOG("cmd='%s'", cmd);
   write_cmd(cmd);
 }
 
@@ -3432,13 +3501,19 @@ void PS_Device::output() const
   "V1"
   "OCP1"
   "OVP1"
+  ------
+  "XXX1"
 */
 void PS_Device::x(const char * s, double v) const
 {
   char cmd[sizeof("XXX1 12.123")];
   snprintf(cmd, sizeof(cmd), "%s %.3f", s, v);
-  LOG("cmd='%s'", cmd);
   write_cmd(cmd);
+
+  if (cmd_verify_) {
+    snprintf(cmd, sizeof(cmd), "%s?", s);
+    write_cmd(cmd);
+  }
 }
 
 void PS_Device::v(double v) const
@@ -3461,18 +3536,28 @@ void PS_Device::ocp(double v) const
   x("OCP1", v);
 }
 
-void PS_Device::output_ON() const
+void PS_Device::on()
 {
+  if (on_) { return; }
+
   const char * cmd = "OP1 1";
-  LOG("cmd='%s'", cmd);
   write_cmd(cmd);
+
+  on_ = true;
+
+  if (cmd_verify_) { output(); }
 }
 
-void PS_Device::output_OFF() const
+void PS_Device::off()
 {
+  if (!on_) { return; }
+
   const char * cmd = "OP1 0";
-  LOG("cmd='%s'", cmd);
   write_cmd(cmd);
+
+  on_ = false;
+
+  if (cmd_verify_) { output(); }
 }
 
 static CN_Device cnDevice = {
@@ -3556,10 +3641,10 @@ void ps_output(const char * args)
   args = skip_whitespace(args);
   if (*args) {
     if (!strcasecmp(args, "on")) {
-      psDevice.output_ON();
+      psDevice.on();
     } else
     if (!strcasecmp(args, "off")) {
-      psDevice.output_OFF();
+      psDevice.off();
     } else {
       LOG("output must be ON or OFF");
     }
@@ -3619,10 +3704,10 @@ void el_input(const char * args)
   args = skip_whitespace(args);
   if (*args) {
     if (!strcasecmp(args, "on")) {
-      elDevice.set_input_ON();
+      elDevice.on();
     } else
     if (!strcasecmp(args, "off")) {
-      elDevice.set_input_OFF();
+      elDevice.off();
     } else {
       LOG("input must be ON or OFF");
     }
@@ -3695,23 +3780,6 @@ static void uartDevices_on_loop(int32_t now_ms) {
   for (unsigned i = 0; i < ARRAY_SIZE(uartDevices); ++i) {
     uartDevices[i]->on_loop(now_ms);
   }
-}
-
-// TODO: Use 'enum class' instead of 'unsigned'
-
-const char * const el_functions[] = { "CC", "CV", };
-
-const char * el_function_to_string(unsigned function)
-{
-  return el_functions[function];
-}
-
-
-const char * const el_ranges[] = { "HIGH", "LOW", "MID", };
-
-const char * el_range_to_string(unsigned cc_range)
-{
-  return el_ranges[cc_range];
 }
 
 void loop()

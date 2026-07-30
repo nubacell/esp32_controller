@@ -1,5 +1,6 @@
 
-struct Profile {
+struct Profile
+{
   uint32_t steps_count_ = 0;
 
   void dump() const {
@@ -15,7 +16,8 @@ struct Profile {
 
   void steps_count(uint32_t new_steps_count) {
     if (new_steps_count > profile_steps_count_max) {
-      LOG("new_steps_count=%u > profile_steps_count_max=%u", new_steps_count, profile_steps_count_max);
+      LOG("new_steps_count=%u > profile_steps_count_max=%u",
+          new_steps_count, profile_steps_count_max);
     } else {
       steps_count_ = new_steps_count;
     }

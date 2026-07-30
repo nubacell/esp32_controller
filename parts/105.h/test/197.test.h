@@ -9,6 +9,9 @@ struct Test
   uint32_t sub_step_end_time_ms_;
   uint32_t spi_timeout_time_ms_;
 
+  int32_t I_A = 0;
+  uint32_t PS_V_max = 0;
+
   bool run_;
   bool abort_;
 

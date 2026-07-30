@@ -1,26 +1,4 @@
 
-const char * to_string(PSState psstate) {
-  switch (psstate) {
-#define CASE_RETURN(x) case PSState::x: return #x;
-    CASE_RETURN(off);
-    CASE_RETURN(CC);
-    CASE_RETURN(CV);
-#undef CASE_RETURN
-    default: return "?";
-  }
-}
-
-const char * to_string(ELState elstate) {
-  switch (elstate) {
-#define CASE_RETURN(x) case ELState::x: return #x;
-    CASE_RETURN(off);
-    CASE_RETURN(CC);
-    CASE_RETURN(CV);
-#undef CASE_RETURN
-    default: return "?";
-  }
-}
-
 void profile_steps(const char * args)
 {
   //LOG("args=%p", args);
@@ -50,8 +28,8 @@ void profile_step(const char * args)
   if (!*args) {
     LOG("format: step_number"
         " step_ms"
-        " I_A"
         " sub_step_ms"
+        " I_A"
         " PS_V_max"
         " cBat_max_mV"
         " cBat_min_mV"

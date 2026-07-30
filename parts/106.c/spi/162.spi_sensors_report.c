@@ -1,5 +1,5 @@
 
-static void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
+void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
 {
   const auto analogSignal = deviceData.analogSignals[i];
   Serial.print(" ");
@@ -8,7 +8,7 @@ static void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
   Serial.print(analogSignal * 0.001, 3);
 }
 
-static void analog_report_all(const SensorDeviceData_t & deviceData)
+void analog_report_all(const SensorDeviceData_t & deviceData)
 {
   for (unsigned i = 0; i < ANALOG_SIGNALS_COUNT; ++i) {
     analog_report_one(deviceData, i);
@@ -17,7 +17,7 @@ static void analog_report_all(const SensorDeviceData_t & deviceData)
 }
 
 // byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
-static void SensorDevice_Data_report_one(unsigned i)
+void SensorDevice_Data_report_one(unsigned i)
 {
   const auto & deviceData = *(SensorDeviceData_t*)(&spi_rx_buffers[i][0]);
 
@@ -38,7 +38,7 @@ static void SensorDevice_Data_report_one(unsigned i)
   analog_report_all(deviceData);
 }
 
-static void SensorDevices_Data_report_all()
+void SensorDevices_Data_report_all()
 {
   for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
     SensorDevice_Data_report_one(i);

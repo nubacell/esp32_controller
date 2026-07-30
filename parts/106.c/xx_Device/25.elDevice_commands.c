@@ -39,10 +39,10 @@ void el_input(const char * args)
   args = skip_whitespace(args);
   if (*args) {
     if (!strcasecmp(args, "on")) {
-      elDevice.set_input_ON();
+      elDevice.on();
     } else
     if (!strcasecmp(args, "off")) {
-      elDevice.set_input_OFF();
+      elDevice.off();
     } else {
       LOG("input must be ON or OFF");
     }

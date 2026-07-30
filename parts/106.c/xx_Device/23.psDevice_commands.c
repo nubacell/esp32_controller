@@ -66,10 +66,10 @@ void ps_output(const char * args)
   args = skip_whitespace(args);
   if (*args) {
     if (!strcasecmp(args, "on")) {
-      psDevice.output_ON();
+      psDevice.on();
     } else
     if (!strcasecmp(args, "off")) {
-      psDevice.output_OFF();
+      psDevice.off();
     } else {
       LOG("output must be ON or OFF");
     }
