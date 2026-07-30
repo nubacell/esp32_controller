@@ -21,7 +21,6 @@ static const commands_map_t commands_map[] = {
 
   COMMAND(el_id),
   COMMAND(el_clear_errors),
-  //COMMAND(el_release_control),
   COMMAND(el_function),
   COMMAND(el_input),
 
@@ -37,6 +36,7 @@ static const commands_map_t commands_map[] = {
   COMMAND(test_run),
   COMMAND(test_abort),
   COMMAND(test_dump),
+  COMMAND(test_state),
 
   COMMAND(spi_run),
   COMMAND(spi_stats),

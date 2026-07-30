@@ -8,15 +8,7 @@ void Test::on_state_step_init(uint32_t now_ms)
   char buffer[TEST_STEP_START_STRLEN+1];
   size_t buffer_size = sizeof(buffer);
   size_t used = safe_snprintf(buffer, buffer_size, "/TEST/STEP %2u\n", step_);
-  if (used < buffer_size) {
-    Serial.write(buffer, used);
-    //LOG("buffer_size=%zu required=%zu", buffer_size, used + 1);
-  } else {
-    buffer[buffer_size - 2] = '\n';
-    buffer[buffer_size - 1] = '\0';
-    Serial.write(buffer, buffer_size - 1);
-    LOG("ERROR: buffer overflow (buffer_size=%zu required=%zu)", buffer_size, used + 1);
-  }
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
 
   const ProfileStep * profileStep = &profileSteps_[step_];
 

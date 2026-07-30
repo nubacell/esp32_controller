@@ -105,15 +105,9 @@ static void SensorDevices_Data_report_all(
     const size_t left = buffer_size - used;
     used += safe_snprintf(&buffer[used], left, "  XX\n");
   }
-  if (used < buffer_size) {
-    Serial.write(buffer, used);
-    //LOG("buffer_size=%zu required=%zu", buffer_size, used + 1);
-  } else {
-    buffer[buffer_size - 2] = '\n';
-    buffer[buffer_size - 1] = '\0';
-    Serial.write(buffer, buffer_size - 1);
-    LOG("ERROR: buffer overflow (buffer_size=%zu required=%zu)", buffer_size, used + 1);
-  }
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+
 #if 0
   const auto availableForWrite2 = cn_uartConfig.availableForWrite();
   const auto us2 = esp_timer_get_time(); // uint64_t

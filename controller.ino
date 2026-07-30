@@ -883,6 +883,15 @@ void scope_sync_setup();
 void scope_sync_pulse(unsigned us);
 void scope_sync_on(bool on);
 
+void serial_write_buffer(
+    const char *file, unsigned line, const char * function,
+    char * buffer, size_t buffer_size, size_t used);
+
+#define SERIAL_WRITE_BUFFER(buffer, buffer_size, used) \
+    serial_write_buffer( \
+        __FILE__, __LINE__, __PRETTY_FUNCTION__, \
+        buffer, buffer_size, used);
+
 bool spi_chip_init();
 
 #define SPI_GPIO_MISO 12
@@ -1681,7 +1690,6 @@ static const commands_map_t commands_map[] = {
 
   COMMAND(el_id),
   COMMAND(el_clear_errors),
-  //COMMAND(el_release_control),
   COMMAND(el_function),
   COMMAND(el_input),
 
@@ -1697,6 +1705,7 @@ static const commands_map_t commands_map[] = {
   COMMAND(test_run),
   COMMAND(test_abort),
   COMMAND(test_dump),
+  COMMAND(test_state),
 
   COMMAND(spi_run),
   COMMAND(spi_stats),
@@ -2170,6 +2179,28 @@ void scope_sync_pulse(const char * args)
   unsigned us = command_args_to_ul(args, nullptr);
   LOG("us=%u", us);
   scope_sync_pulse(us);
+}
+
+void serial_write_buffer(
+    const char * file, unsigned line, const char * function,
+    char * buffer, size_t buffer_size, size_t used)
+{
+  if (used < buffer_size) {
+    Serial.write(buffer, used);
+#if 1
+    log(file, line, function,
+        "buffer_size=%zu required=%zu", buffer_size, used + 1);
+#endif
+  } else {
+    if (buffer_size >= 2) {
+      buffer[buffer_size - 2] = '\n';
+      buffer[buffer_size - 1] = '\0';
+      Serial.write(buffer, buffer_size - 1);
+    }
+    log(file, line, function,
+        "ERROR: buffer overflow (buffer_size=%zu required=%zu)",
+        buffer_size, used + 1);
+  }
 }
 
 const char * skip_whitespace(const char * p)
@@ -2812,15 +2843,9 @@ static void SensorDevices_Data_report_all(
     const size_t left = buffer_size - used;
     used += safe_snprintf(&buffer[used], left, "  XX\n");
   }
-  if (used < buffer_size) {
-    Serial.write(buffer, used);
-    //LOG("buffer_size=%zu required=%zu", buffer_size, used + 1);
-  } else {
-    buffer[buffer_size - 2] = '\n';
-    buffer[buffer_size - 1] = '\0';
-    Serial.write(buffer, buffer_size - 1);
-    LOG("ERROR: buffer overflow (buffer_size=%zu required=%zu)", buffer_size, used + 1);
-  }
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+
 #if 0
   const auto availableForWrite2 = cn_uartConfig.availableForWrite();
   const auto us2 = esp_timer_get_time(); // uint64_t
@@ -2832,6 +2857,151 @@ static void SensorDevices_Data_report_all(
 }
 
 } // namespace rpi
+
+Test test;
+
+void test_run(const char * args)
+{
+  (void) args;
+  test.run();
+}
+
+void test_abort(const char * args)
+{
+  (void) args;
+  test.abort();
+}
+
+void Test::dump() const
+{
+  hex_dump( (const uint8_t*)this, sizeof(*this));
+  LOG("step=%u sub_step=%u test_start_time_ms=%u sub_step_end_time_ms=%u"
+      " spi_timeout_time_ms=%u run=%i abort=%i state=%u/%s",
+      step_, sub_step_, test_start_time_ms_, sub_step_end_time_ms_,
+      spi_timeout_time_ms_, run_, abort_, state_, to_string(state_));
+}
+
+void test_dump(const char * args)
+{
+  test.dump();
+}
+
+void Test::change_PS_EL_configs(const ProfileStep * profileStep)
+{
+  if (PS_V_max != profileStep->PS_V_max) {
+    LOG("'PS_V_max' change (%u -> %u)", PS_V_max, profileStep->PS_V_max);
+    psDevice.off();
+    elDevice.off();
+    if (profileStep->I_A > 0) {
+      psDevice.v(profileStep->PS_V_max);
+      psDevice.c(+ profileStep->I_A);
+      elDevice.c(0);
+      psDevice.on();
+    } else if (profileStep->I_A < 0) {
+      psDevice.v(profileStep->PS_V_max);
+      psDevice.c(0);
+      elDevice.c(- profileStep->I_A);
+      elDevice.on();
+    } else {
+      psDevice.c(0);
+      elDevice.c(0);
+    }
+  } else
+  if (sign(I_A) != sign(profileStep->I_A)) {
+    LOG("'I_A' direction change (%i -> %i)", I_A, profileStep->I_A);
+    if (profileStep->I_A > 0) {
+      elDevice.c(0);
+      psDevice.c(+ profileStep->I_A);
+      psDevice.on();
+    } else
+    if (profileStep->I_A < 0) {
+      psDevice.c(0);
+      elDevice.c(- profileStep->I_A);
+      elDevice.on();
+    } else {
+      psDevice.c(0);
+      elDevice.c(0);
+    }
+  } else
+  if (I_A != profileStep->I_A) {
+    LOG("'I_A' value change (%i -> %i)", I_A, profileStep->I_A);
+    if (profileStep->I_A > 0) {
+      psDevice.c(+ profileStep->I_A);
+      psDevice.on();
+    } else
+    if (profileStep->I_A < 0) {
+      elDevice.c(- profileStep->I_A);
+      elDevice.on();
+    } else {
+      psDevice.c(0);
+      elDevice.c(0);
+    }
+  }
+  PS_V_max = profileStep->PS_V_max;
+  I_A = profileStep->I_A;
+}
+
+void Test::deactivate_PS_EL()
+{
+  LOG("deactivating EL");
+  psDevice.off();
+  elDevice.off();
+  PS_V_max = 0;
+  I_A = 0;
+}
+
+void Test::on_loop(uint32_t now_ms)
+{
+  switch (state_) {
+#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
+    CASE_CALL(idle)
+    CASE_CALL(step_init)
+    CASE_CALL(sub_step_init)
+    CASE_CALL(sub_step_wait)
+    CASE_CALL(sub_step_measure)
+    CASE_CALL(spi_wait)
+    CASE_CALL(sub_step_next)
+    CASE_CALL(step_next)
+    CASE_CALL(abort)
+    CASE_CALL(cleanup)
+#undef CASE_CALL
+    default:
+      LOG("Unexpected state=%u/'%s'", state_, to_string(state_));
+      break;
+  }
+}
+
+const char * Test::to_string(State state)
+{
+  static const char * const state_names[] = {
+    "idle",
+    "step_init",
+    "sub_step_init",
+    "sub_step_wait",
+    "sub_step_measure",
+    "spi_wait",
+    "sub_step_next",
+    "step_next",
+    "abort",
+    "cleanup",
+  };
+  const auto i = unsigned(state);
+  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
+}
+
+#define TEST_STATE_STRLEN CONSTSTRLEN("/TEST/STATE sub_step_measure\n")
+
+void test_state(const char * args)
+{
+  (void) args;
+
+  char buffer[TEST_STATE_STRLEN+1];
+  size_t buffer_size = sizeof(buffer);
+
+  size_t used = safe_snprintf(buffer, buffer_size, "/TEST/STATE %s\n", Test::to_string(test.state_));
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+}
 
 void Test::on_state_idle(uint32_t now_ms)
 {
@@ -2869,15 +3039,7 @@ void Test::on_state_step_init(uint32_t now_ms)
   char buffer[TEST_STEP_START_STRLEN+1];
   size_t buffer_size = sizeof(buffer);
   size_t used = safe_snprintf(buffer, buffer_size, "/TEST/STEP %2u\n", step_);
-  if (used < buffer_size) {
-    Serial.write(buffer, used);
-    //LOG("buffer_size=%zu required=%zu", buffer_size, used + 1);
-  } else {
-    buffer[buffer_size - 2] = '\n';
-    buffer[buffer_size - 1] = '\0';
-    Serial.write(buffer, buffer_size - 1);
-    LOG("ERROR: buffer overflow (buffer_size=%zu required=%zu)", buffer_size, used + 1);
-  }
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
 
   const ProfileStep * profileStep = &profileSteps_[step_];
 
@@ -3069,137 +3231,6 @@ void Test::on_state_cleanup(uint32_t now_ms)
   LOG("--- test finished ---");
   Serial.print("/TEST/FINISHED\n");
   state(State::idle);
-}
-
-Test test;
-
-const char * Test::to_string(State state)
-{
-  static const char * const state_names[] = {
-    "idle",
-    "step_init",
-    "sub_step_init",
-    "sub_step_wait",
-    "sub_step_measure",
-    "spi_wait",
-    "sub_step_next",
-    "step_next",
-    "abort",
-    "cleanup",
-  };
-  const auto i = unsigned(state);
-  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
-}
-
-void test_run(const char * args)
-{
-  (void) args;
-  test.run();
-}
-
-void test_abort(const char * args)
-{
-  (void) args;
-  test.abort();
-}
-
-void Test::dump() const
-{
-  hex_dump( (const uint8_t*)this, sizeof(*this));
-  LOG("step=%u sub_step=%u test_start_time_ms=%u sub_step_end_time_ms=%u"
-      " spi_timeout_time_ms=%u run=%i abort=%i state=%u/%s",
-      step_, sub_step_, test_start_time_ms_, sub_step_end_time_ms_,
-      spi_timeout_time_ms_, run_, abort_, state_, to_string(state_));
-}
-
-void test_dump(const char * args)
-{
-  test.dump();
-}
-
-void Test::change_PS_EL_configs(const ProfileStep * profileStep)
-{
-  if (PS_V_max != profileStep->PS_V_max) {
-    LOG("'PS_V_max' change (%u -> %u)", PS_V_max, profileStep->PS_V_max);
-    psDevice.off();
-    elDevice.off();
-    if (profileStep->I_A > 0) {
-      psDevice.v(profileStep->PS_V_max);
-      psDevice.c(+ profileStep->I_A);
-      elDevice.c(0);
-      psDevice.on();
-    } else if (profileStep->I_A < 0) {
-      psDevice.v(profileStep->PS_V_max);
-      psDevice.c(0);
-      elDevice.c(- profileStep->I_A);
-      elDevice.on();
-    } else {
-      psDevice.c(0);
-      elDevice.c(0);
-    }
-  } else
-  if (sign(I_A) != sign(profileStep->I_A)) {
-    LOG("'I_A' direction change (%i -> %i)", I_A, profileStep->I_A);
-    if (profileStep->I_A > 0) {
-      elDevice.c(0);
-      psDevice.c(+ profileStep->I_A);
-      psDevice.on();
-    } else
-    if (profileStep->I_A < 0) {
-      psDevice.c(0);
-      elDevice.c(- profileStep->I_A);
-      elDevice.on();
-    } else {
-      psDevice.c(0);
-      elDevice.c(0);
-    }
-  } else
-  if (I_A != profileStep->I_A) {
-    LOG("'I_A' value change (%i -> %i)", I_A, profileStep->I_A);
-    if (profileStep->I_A > 0) {
-      psDevice.c(+ profileStep->I_A);
-      psDevice.on();
-    } else
-    if (profileStep->I_A < 0) {
-      elDevice.c(- profileStep->I_A);
-      elDevice.on();
-    } else {
-      psDevice.c(0);
-      elDevice.c(0);
-    }
-  }
-  PS_V_max = profileStep->PS_V_max;
-  I_A = profileStep->I_A;
-}
-
-void Test::deactivate_PS_EL()
-{
-  LOG("deactivating EL");
-  psDevice.off();
-  elDevice.off();
-  PS_V_max = 0;
-  I_A = 0;
-}
-
-void Test::on_loop(uint32_t now_ms)
-{
-  switch (state_) {
-#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
-    CASE_CALL(idle)
-    CASE_CALL(step_init)
-    CASE_CALL(sub_step_init)
-    CASE_CALL(sub_step_wait)
-    CASE_CALL(sub_step_measure)
-    CASE_CALL(spi_wait)
-    CASE_CALL(sub_step_next)
-    CASE_CALL(step_next)
-    CASE_CALL(abort)
-    CASE_CALL(cleanup)
-#undef CASE_CALL
-    default:
-      LOG("Unexpected state=%u/'%s'", state_, to_string(state_));
-      break;
-  }
 }
 
 const UartConfig cn_uartConfig = {
