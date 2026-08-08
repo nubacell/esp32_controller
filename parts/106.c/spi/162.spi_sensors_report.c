@@ -1,7 +1,7 @@
 
 void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
 {
-  const auto analogSignal = deviceData.analogSignals[i];
+  const auto analogSignal = deviceData.analogSignals.all[i];
   Serial.print(" ");
   //Serial.print(analogSignal);
   //Serial.print("/");

@@ -5,7 +5,7 @@ static size_t analog_report_one(
     char * buffer, size_t buffer_size,
     const SensorDeviceData_t & deviceData, unsigned i)
 {
-  const auto analogSignal = deviceData.analogSignals[i];
+  const auto analogSignal = deviceData.analogSignals.all[i];
   return safe_snprintf(buffer, buffer_size, " %4u", analogSignal);
 }
 

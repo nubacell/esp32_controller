@@ -1,12 +1,22 @@
 
+#define voltage_pins_count 4
+#define temperature_pins_count 4
+#define temperature_groups_count 2
+
 typedef uint16_t AnalogSignal_t;
-#define ANALOG_SIGNALS_COUNT 8
-typedef AnalogSignal_t AnalogSignals_t[ANALOG_SIGNALS_COUNT];
+#define ANALOG_SIGNALS_COUNT 12
+typedef union AnalogSignals_u {
+  struct {
+    AnalogSignal_t voltage[voltage_pins_count];
+    AnalogSignal_t temperature[temperature_groups_count][temperature_pins_count];
+  };
+  AnalogSignal_t all[ANALOG_SIGNALS_COUNT];
+} AnalogSignals_t;
 
 typedef uint16_t VCC_t;
 
 typedef struct SensorDeviceData_s {
-  uint8_t format; // data format version number, 0 for now
+  uint8_t format; // data format version number, 1 for now
   uint8_t device_id;
   AnalogSignals_t analogSignals;
   VCC_t vcc;

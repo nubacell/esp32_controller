@@ -898,7 +898,7 @@ bool spi_chip_init();
 #define SPI_BUFFER_SIZE_MAX 64
 #define SPI_BUFFER_SIZE SPI_BUFFER_SIZE_MAX
 //#define SPI_BUFFER_SIZE 128
-#define SPI_DATA_SIZE 21
+#define SPI_DATA_SIZE 29
 
 
 #define SPI_SENSOR_DEVICES_COUNT 8
@@ -994,14 +994,24 @@ void spi_report_stats();
 void spi_run(const char * args);
 void spi_stats(const char * args);
 
+#define voltage_pins_count 4
+#define temperature_pins_count 4
+#define temperature_groups_count 2
+
 typedef uint16_t AnalogSignal_t;
-#define ANALOG_SIGNALS_COUNT 8
-typedef AnalogSignal_t AnalogSignals_t[ANALOG_SIGNALS_COUNT];
+#define ANALOG_SIGNALS_COUNT 12
+typedef union AnalogSignals_u {
+  struct {
+    AnalogSignal_t voltage[voltage_pins_count];
+    AnalogSignal_t temperature[temperature_groups_count][temperature_pins_count];
+  };
+  AnalogSignal_t all[ANALOG_SIGNALS_COUNT];
+} AnalogSignals_t;
 
 typedef uint16_t VCC_t;
 
 typedef struct SensorDeviceData_s {
-  uint8_t format; // data format version number, 0 for now
+  uint8_t format; // data format version number, 1 for now
   uint8_t device_id;
   AnalogSignals_t analogSignals;
   VCC_t vcc;
@@ -2648,7 +2658,7 @@ bool spi_chip_down()
 
 void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
 {
-  const auto analogSignal = deviceData.analogSignals[i];
+  const auto analogSignal = deviceData.analogSignals.all[i];
   Serial.print(" ");
   //Serial.print(analogSignal);
   //Serial.print("/");
@@ -2706,7 +2716,7 @@ static size_t analog_report_one(
     char * buffer, size_t buffer_size,
     const SensorDeviceData_t & deviceData, unsigned i)
 {
-  const auto analogSignal = deviceData.analogSignals[i];
+  const auto analogSignal = deviceData.analogSignals.all[i];
   return safe_snprintf(buffer, buffer_size, " %4u", analogSignal);
 }
 
