@@ -48,9 +48,9 @@ static const commands_map_t commands_map[] = {
   COMMAND(ps_ocp),
   COMMAND(ps_output),
 
-  COMMAND(scope_sync_on),
-  COMMAND(scope_sync_off),
-  COMMAND(scope_sync_pulse),
+  //COMMAND(scope_sync_on),
+  //COMMAND(scope_sync_off),
+  //COMMAND(scope_sync_pulse),
 
   COMMAND(pin_dump),
   COMMAND(pin_reset),

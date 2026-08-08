@@ -319,7 +319,7 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
   if (run_) {
     run_ = false;
 
-    scope_sync_on(true);
+    //scope_sync_on(true);
     transfer_start_time_ms_ = now_ms;
 
     constexpr uint32_t spi_transfer_all_timeout_ms = 100;
@@ -342,7 +342,7 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
     if (spi_transfer_start(spi_sensor_n_)) {
       state(State::running);
     } else {
-      scope_sync_on(false);
+      //scope_sync_on(false);
       state(State::idle);
     }
   }
@@ -359,7 +359,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
   if (spi_transfer_finished_) {
     if (++spi_sensor_n_ < SPI_SENSOR_DEVICES_COUNT) {
       if (!spi_transfer_start(spi_sensor_n_)) {
-        scope_sync_on(false);
+        //scope_sync_on(false);
         state(State::idle);
       }
     } else {
@@ -367,7 +367,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
       //LOG("sensors_data_valid_=%i", sensors_data_valid_);
       // FIXME: check CRCs
       transfer_finish_time_ms_ = now_ms;
-      scope_sync_on(false);
+      //scope_sync_on(false);
       state(State::idle);
     }
   } else
@@ -377,7 +377,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
     // make sure MR pin is inactive
     gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
 
-    scope_sync_on(false);
+    //scope_sync_on(false);
     state(State::idle);
   }
 }

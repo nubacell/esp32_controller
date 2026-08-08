@@ -877,12 +877,6 @@ struct Profile
 
 Profile profile;
 
-#define SCOPE_SYNC 21
-
-void scope_sync_setup();
-void scope_sync_pulse(unsigned us);
-void scope_sync_on(bool on);
-
 void serial_write_buffer(
     const char *file, unsigned line, const char * function,
     char * buffer, size_t buffer_size, size_t used);
@@ -1720,9 +1714,9 @@ static const commands_map_t commands_map[] = {
   COMMAND(ps_ocp),
   COMMAND(ps_output),
 
-  COMMAND(scope_sync_on),
-  COMMAND(scope_sync_off),
-  COMMAND(scope_sync_pulse),
+  //COMMAND(scope_sync_on),
+  //COMMAND(scope_sync_off),
+  //COMMAND(scope_sync_pulse),
 
   COMMAND(pin_dump),
   COMMAND(pin_reset),
@@ -2135,55 +2129,6 @@ static void report_config()
   spi_report_config();
 }
 
-void scope_sync_setup()
-{
-  LOG("");
-#if 1
-  gpio_set_level(gpio_num_t(SCOPE_SYNC), 1);
-  gpio_set_direction(gpio_num_t(SCOPE_SYNC), GPIO_MODE_INPUT_OUTPUT);
-#else
-  digitalWrite(SCOPE_SYNC, HIGH);
-  pinMode(SCOPE_SYNC, OUTPUT);
-#endif
-}
-
-void scope_sync_on(bool on)
-{
-#if 1
-  gpio_set_level(gpio_num_t(SCOPE_SYNC), !on);
-#else
-  digitalWrite(SCOPE_SYNC, (on) ? LOW : HIGH);
-#endif
-}
-
-void scope_sync_pulse(unsigned us)
-{
-  scope_sync_on(true);
-  if (us) { const auto us0 = esp_timer_get_time(); while ((esp_timer_get_time() - us0) < us) {} }
-  scope_sync_on(false);
-}
-
-void scope_sync_on(const char * args)
-{
-  (void) args;
-  LOG("");
-  scope_sync_on(true);
-}
-
-void scope_sync_off(const char * args)
-{
-  (void) args;
-  LOG("");
-  scope_sync_on(false);
-}
-
-void scope_sync_pulse(const char * args)
-{
-  unsigned us = command_args_to_ul(args, nullptr);
-  LOG("us=%u", us);
-  scope_sync_pulse(us);
-}
-
 void serial_write_buffer(
     const char * file, unsigned line, const char * function,
     char * buffer, size_t buffer_size, size_t used)
@@ -2548,7 +2493,7 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
   if (run_) {
     run_ = false;
 
-    scope_sync_on(true);
+    //scope_sync_on(true);
     transfer_start_time_ms_ = now_ms;
 
     constexpr uint32_t spi_transfer_all_timeout_ms = 100;
@@ -2571,7 +2516,7 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
     if (spi_transfer_start(spi_sensor_n_)) {
       state(State::running);
     } else {
-      scope_sync_on(false);
+      //scope_sync_on(false);
       state(State::idle);
     }
   }
@@ -2588,7 +2533,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
   if (spi_transfer_finished_) {
     if (++spi_sensor_n_ < SPI_SENSOR_DEVICES_COUNT) {
       if (!spi_transfer_start(spi_sensor_n_)) {
-        scope_sync_on(false);
+        //scope_sync_on(false);
         state(State::idle);
       }
     } else {
@@ -2596,7 +2541,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
       //LOG("sensors_data_valid_=%i", sensors_data_valid_);
       // FIXME: check CRCs
       transfer_finish_time_ms_ = now_ms;
-      scope_sync_on(false);
+      //scope_sync_on(false);
       state(State::idle);
     }
   } else
@@ -2606,7 +2551,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
     // make sure MR pin is inactive
     gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
 
-    scope_sync_on(false);
+    //scope_sync_on(false);
     state(State::idle);
   }
 }
@@ -3869,7 +3814,7 @@ void loop()
 void setup()
 {
   xx_uartConfigs_init();
-  scope_sync_setup();
+  //scope_sync_setup();
   spi_setup();
   report_config();
 }
