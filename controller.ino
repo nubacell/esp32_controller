@@ -909,19 +909,20 @@ bool spi_chip_init();
 
 #define SPI_SENSOR_DEVICES_COUNT 8
 
-// 'Master Select' (MS) is used to select one of many LGT8F devices
-#define SPI_MS_0_GPIO 22
-#define SPI_MS_1_GPIO 23
-// FIXME: Assign correct pin numbers
-#define SPI_MS_2_GPIO SPI_MS_0_GPIO
-#define SPI_MS_3_GPIO SPI_MS_1_GPIO
-#define SPI_MS_4_GPIO SPI_MS_0_GPIO
-#define SPI_MS_5_GPIO SPI_MS_0_GPIO
-#define SPI_MS_6_GPIO SPI_MS_1_GPIO
-#define SPI_MS_7_GPIO SPI_MS_1_GPIO
+// 'Master Request' (MR) multiplexer (MUX) is used to select one of many LGT8F
+// devices
+#define SPI_MR_MUX_GPIO_COUNT 4
+#define SPI_MR_MUX_0_GPIO 32
+#define SPI_MR_MUX_1_GPIO 33
+#define SPI_MR_MUX_2_GPIO 19
+#define SPI_MR_MUX_3_GPIO 18
 
+// 'Master Request' (MR) is used to request SPI transfer from one of many LGT8F
+// devices selected by 'MR_MUX'
+#define SPI_MR_GPIO 4
 
-extern const uint8_t spi_ms_pins[SPI_SENSOR_DEVICES_COUNT];
+extern const uint8_t spi_mr_mux_pins[SPI_MR_MUX_GPIO_COUNT];
+
 extern byte spi_tx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
 extern byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
 extern uint16_t spi_rx_bits[SPI_SENSOR_DEVICES_COUNT];
@@ -931,18 +932,20 @@ extern const spi_slave_interface_config_t spi_slave_interface_config;
 
 
 // Called after SPI is configured for 'transaction'.
-// Can be used to activate 'Master Select' (MS).
+// Can be used to activate 'Master Request' (MR).
 void spi_post_setup_cb(spi_slave_transaction_t * transaction);
 
 // Called after 'transaction' is sent/received.
-// Can be used to deactivate 'Master Select' (MS).
+// Can be used to deactivate 'Master Request' (MR).
 // Can be used to mark end of multiple transfers.
 void spi_post_trans_cb(spi_slave_transaction_t * transaction);
 
 void spi_setup();
 
-void spi_ms_pins_setup();
-void spi_pins_setuo();
+void spi_mr_pin_setup();
+void spi_mr_mux_pins_setup();
+void spi_mr_mux(unsigned spi_sensor_n);
+void spi_pins_setup();
 
 bool spi_transfer_start(uint8_t spi_sensor_n);
 
@@ -2227,15 +2230,11 @@ char * skip_whitespace(char * p)
 
 //#define SPI_TRANS_TIME_STATS
 
-const uint8_t spi_ms_pins[SPI_SENSOR_DEVICES_COUNT] = {
-  SPI_MS_0_GPIO,
-  SPI_MS_1_GPIO,
-  SPI_MS_2_GPIO,
-  SPI_MS_3_GPIO,
-  SPI_MS_4_GPIO,
-  SPI_MS_5_GPIO,
-  SPI_MS_6_GPIO,
-  SPI_MS_7_GPIO,
+const uint8_t spi_mr_mux_pins[SPI_MR_MUX_GPIO_COUNT] = {
+  SPI_MR_MUX_0_GPIO,
+  SPI_MR_MUX_1_GPIO,
+  SPI_MR_MUX_2_GPIO,
+  SPI_MR_MUX_3_GPIO,
 };
 
 // FIXME: Eliminate 'spi_tx_buffers'
@@ -2292,21 +2291,36 @@ const spi_slave_interface_config_t spi_slave_interface_config = {
 };
 
 
-// 'MS' pins are 'OUTPUT' with default 'HIGH'/'inactive'
+// 'MR' pins are 'OUTPUT' with default 'HIGH'/'inactive'
 
-#define SPI_MS_ACTIvE   0
-#define SPI_MS_INACTIvE 1
+#define SPI_MR_ACTIvE   0
+#define SPI_MR_INACTIvE 1
 
-void spi_ms_pins_setup()
+void spi_mr_pin_setup()
 {
   LOG("");
-  for (unsigned i = 0; i < ARRAY_SIZE(spi_ms_pins); ++i) {
-    const auto spi_ms_pin = gpio_num_t(spi_ms_pins[i]);
-    gpio_set_level(spi_ms_pin, SPI_MS_INACTIvE);
-    gpio_set_direction(spi_ms_pin, GPIO_MODE_INPUT_OUTPUT);
+  const auto spi_mr_pin = gpio_num_t(SPI_MR_GPIO);
+  gpio_set_level(spi_mr_pin, 1);
+  gpio_set_direction(spi_mr_pin, GPIO_MODE_INPUT_OUTPUT);
+}
+
+void spi_mr_mux_pins_setup()
+{
+  LOG("");
+  for (unsigned i = 0; i < ARRAY_SIZE(spi_mr_mux_pins); ++i) {
+    const auto spi_mr_mux_pin = gpio_num_t(spi_mr_mux_pins[i]);
+    gpio_set_level(spi_mr_mux_pin, 0);
+    gpio_set_direction(spi_mr_mux_pin, GPIO_MODE_INPUT_OUTPUT);
   }
 }
 
+void spi_mr_mux(unsigned spi_sensor_n)
+{
+  for (unsigned i = 0; i < ARRAY_SIZE(spi_mr_mux_pins); ++i) {
+    const auto spi_mr_mux_pin = gpio_num_t(spi_mr_mux_pins[i]);
+    gpio_set_level(spi_mr_mux_pin, (spi_sensor_n >> i) & 1);
+  }
+}
 
 const uint8_t spi_pins[] = {
   SPI_GPIO_MOSI,
@@ -2339,7 +2353,7 @@ void spi_pins_setup()
 
 
 // Called after SPI is configured for 'transaction'.
-// Can be used to activate 'Master Select' (MS).
+// Can be used to activate 'Master Request' (MR).
 unsigned spi_post_setup_cb_count_;
 #if defined SPI_TRANS_TIME_STATS
 uint32_t spi_post_setup_cb_us_;
@@ -2352,15 +2366,17 @@ void spi_post_setup_cb(spi_slave_transaction_t * transaction)
   spi_post_setup_cb_us_ = esp_timer_get_time();
 #endif
 
+  spi_mr_mux(spi_sensor_n_);
+
   //spi_sensor_n_ %= SPI_SENSOR_DEVICES_COUNT;
-  gpio_set_level(gpio_num_t(spi_ms_pins[spi_sensor_n_]), SPI_MS_ACTIvE);
+  gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_ACTIvE);
 }
 
 //volatile
 bool spi_transfer_finished_;
 
 // Called after 'transaction' is sent/received.
-// Can be used to deactivate 'Master Select' (MS).
+// Can be used to deactivate 'Master Request' (MR).
 // Can be used to mark end of multiple transfers.
 unsigned spi_post_trans_cb_count_;
 #if defined SPI_TRANS_TIME_STATS
@@ -2384,7 +2400,7 @@ void spi_post_trans_cb(spi_slave_transaction_t * transaction)
 #endif
 
   //spi_sensor_n_ %= SPI_SENSOR_DEVICES_COUNT;
-  gpio_set_level(gpio_num_t(spi_ms_pins[spi_sensor_n_]), SPI_MS_INACTIvE);
+  gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
 
   spi_rx_bits[spi_sensor_n_] = transaction->trans_len;
 
@@ -2395,7 +2411,8 @@ void spi_post_trans_cb(spi_slave_transaction_t * transaction)
 void spi_setup()
 {
   LOG("");
-  spi_ms_pins_setup();
+  spi_mr_mux_pins_setup();
+  spi_mr_pin_setup();
   LOG("");
 }
 
@@ -2458,7 +2475,7 @@ bool spi_transfer_start(uint8_t spi_sensor_n)
     .tx_buffer = &spi_tx_buffers[spi_sensor_n][0],
     .rx_buffer = &spi_rx_buffers[spi_sensor_n][0],
     // void * user // User-defined variable.
-    // Can be used to store MS for 'spi_post_setup_cb' and 'spi_post_trans_cb'.
+    // Can be used to store 'spi_sensor_n' for 'spi_post_setup_cb' and 'spi_post_trans_cb'.
     //.user = NULL,
   };
   if (ESP_OK != spi_slave_queue_trans(SPI_DEVICE, &spi_transaction_, 0)) {
@@ -2586,8 +2603,8 @@ void SPI_Device::on_state_running(uint32_t now_ms)
   if (timeout_time_ms_ <= now_ms) {
     LOG("WARNING: %s %s", "spi transfer", "timeout");
 
-    // make sure MS pin of spi_sensor_n_ is inactive
-    gpio_set_level(gpio_num_t(spi_ms_pins[spi_sensor_n_]), SPI_MS_INACTIvE);
+    // make sure MR pin is inactive
+    gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
 
     scope_sync_on(false);
     state(State::idle);
@@ -2622,10 +2639,11 @@ void spi_report_config()
   LOG(". %s=%u", "SPI_GPIO_MOSI", SPI_GPIO_MOSI);
   LOG(". %s=%u", "SPI_GPIO_SCLK", SPI_GPIO_SCLK);
   LOG(". %s=%u", "SPI_GPIO_CS", SPI_GPIO_CS);
-  for (unsigned i = 0; i < ARRAY_SIZE(spi_ms_pins); ++i) {
-    const auto spi_ms_pin = spi_ms_pins[i];
-    LOG(". SPI_MS_%u_GPIO=%u", i, spi_ms_pin);
+  for (unsigned i = 0; i < ARRAY_SIZE(spi_mr_mux_pins); ++i) {
+    const auto spi_mr_mux_pin = spi_mr_mux_pins[i];
+    LOG(". SPI_MR_MUX_%u_GPIO=%u", i, spi_mr_mux_pin);
   }
+  LOG(". %s=%u", "SPI_MR_GPIO", SPI_MR_GPIO);
   LOG(". %s=%u", "SPI_BUFFER_SIZE", SPI_BUFFER_SIZE);
   LOG(". %s=%u", "SPI_DATA_SIZE", SPI_DATA_SIZE);
   LOG(". %s=%u", "SPI_RX_BITS_MIN", SPI_RX_BITS_MIN);
