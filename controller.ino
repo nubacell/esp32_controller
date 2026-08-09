@@ -17,6 +17,8 @@ uint8_t calcCRC8(
     bool reverseOut    = CRC8_REV_OUT,
     crc_size_t yieldPeriod = CRC_YIELD_DISABLED);
 
+#include "esp_err.h"
+
 #include "driver/gpio.h"
 
 extern "C" {
@@ -28,6 +30,8 @@ esp_err_t gpio_output_enable(gpio_num_t gpio_num);
 #include "esp_log.h" // ESP_LOG*()
 
 #include <Adafruit_ADS1X15.h>
+
+#include "driver/i2c_master.h"
 
 #include "driver/spi_slave.h"
 #include "esp_private/spi_slave_internal.h" // spi_slave_queue_reset()
@@ -813,6 +817,226 @@ struct Controller
 extern Adafruit_ADS1115 i2c_adc_;
 
 void i2c_adc(const char * args);
+
+// https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2c.html
+
+namespace nc {
+namespace i2c {
+
+struct Bus
+{
+  const i2c_master_bus_config_t & i2c_master_bus_config_;
+  i2c_master_bus_handle_t i2c_master_bus_handle_;
+
+  bool init_done_ = false;
+
+  bool init();
+  void down();
+
+  bool probe(uint16_t address);
+};
+
+extern Bus bus;
+
+struct Device
+{
+  const Bus & bus_;
+  const i2c_device_config_t & i2c_device_config_;
+  i2c_master_dev_handle_t i2c_master_dev_handle_;
+
+  bool init_done_ = false;
+
+  bool init();
+  void down();
+
+  bool read(uint8_t * read_buffer, size_t read_size);
+  bool write(const uint8_t * write_buffer, size_t write_size);
+  bool write_read(
+      const uint8_t * write_buffer, size_t write_size,
+      uint8_t * read_buffer, size_t read_size);
+};
+
+// Note: 'device' instance is specific for 'Adc' instance.
+// FIXME: Move 'device' into 'Adc'
+extern Device device;
+
+
+namespace adc_regs {
+
+struct Config
+{
+  uint16_t COMP_QUE:2;  // 1..0
+    /*
+        Comparator queue and disable (ADS1114 and ADS1115 only)
+
+        These bits perform two functions. When set to 11, the comparator is
+        disabled and the ALERT/RDY pin is set to a high-impedance state. When
+        set to any other value, the ALERT/RDY pin and the comparator function
+        are enabled, and the set value determines the number of successive
+        conversions exceeding the upper or lower threshold required before
+        asserting the ALERT/RDY pin.
+
+        00b : Assert after one conversion
+        01b : Assert after two conversions
+        10b : Assert after four conversions
+        11b : Disable comparator and set ALERT/RDY pin to high-impedance (default)
+    */
+  uint16_t COMP_LAT:1;  // 2
+    /*
+        Latching comparator (ADS1114 and ADS1115 only)
+
+        Controls whether the ALERT/RDY pin latches after being asserted or
+        clears after conversions are within the margin of the upper and lower
+        threshold values.
+
+        0b : Nonlatching comparator. The ALERT/RDY pin does not latch when
+        asserted (default).
+
+        1b : Latching comparator. The asserted ALERT/RDY pin remains latched
+        until conversion data are read by the controller or an appropriate
+        SMBus alert response is sent by the controller. The device responds
+        with an address, and is the lowest address currently asserting the
+        ALERT/RDY bus line.
+    */
+  uint16_t COMP_POL:1;  // 3
+    /*
+        Comparator polarity. Controls polarity of the ALERT/RDY pin.
+
+        0b : Active low (default)
+        1b : Active high
+    */
+  uint16_t COMP_MODE:1; // 4
+    /*
+        Comparator mode
+
+        0b : Traditional comparator (default)
+        1b : Window comparator
+    */
+  uint16_t DR:3;        // 7..5
+    /*
+        Data rate
+
+        000b : 8SPS
+        001b : 16SPS
+        010b : 32SPS
+        011b : 64SPS
+        100b : 128SPS (default)
+        101b : 250SPS
+        110b : 475SPS
+        111b : 860SPS
+    */
+  uint16_t MODE:1;      // 8
+    /*
+        Device operating mode
+
+        0b : Continuous-conversion mode
+        1b : Single-shot mode or power-down state (default)
+    */
+  uint16_t PGA:3;       // 11..9
+    /*
+        Programmable gain amplifier configuration
+
+        These bits set the FSR of the programmable gain amplifier.
+
+        000b : FSR = ±6.144V(1)
+        001b : FSR = ±4.096V(1)
+        010b : FSR = ±2.048V (default)
+        011b : FSR = ±1.024V
+        100b : FSR = ±0.512V
+        101b : FSR = ±0.256V
+        110b : FSR = ±0.256V
+        111b : FSR = ±0.256V
+    */
+  uint16_t MUX:3;       // 14..12
+    /*
+        Input multiplexer configuration (ADS1115 only)
+
+        These bits configure the input multiplexer.
+
+        000b : AINP = AIN0 and AINN = AIN1 (default)
+        001b : AINP = AIN0 and AINN = AIN3
+        010b : AINP = AIN1 and AINN = AIN3
+        011b : AINP = AIN2 and AINN = AIN3
+        100b : AINP = AIN0 and AINN = GND
+        101b : AINP = AIN1 and AINN = GND
+        110b : AINP = AIN2 and AINN = GND
+        111b : AINP = AIN3 and AINN = GND
+
+        Adafruit_ADS1X15.h:
+
+        CONFIG_MUX_DIFF_0_1 (0x0000) // Differential P = AIN0, N = AIN1 (default)
+        CONFIG_MUX_DIFF_0_3 (0x1000) // Differential P = AIN0, N = AIN3
+        CONFIG_MUX_DIFF_1_3 (0x2000) // Differential P = AIN1, N = AIN3
+        CONFIG_MUX_DIFF_2_3 (0x3000) // Differential P = AIN2, N = AIN3
+
+        CONFIG_MUX_SINGLE_0 (0x4000) // Single-ended AIN0
+        CONFIG_MUX_SINGLE_1 (0x5000) // Single-ended AIN1
+        CONFIG_MUX_SINGLE_2 (0x6000) // Single-ended AIN2
+        CONFIG_MUX_SINGLE_3 (0x7000) // Single-ended AIN3
+    */
+  uint16_t OS:1;        // 15
+    /*
+        Operational status or single-shot conversion start
+
+        This bit determines operational status of the device. OS can only be
+        written when in power-down state and has no effect when a conversion is
+        ongoing.
+
+        When writing:
+        0b : No effect
+        1b : Start a single conversion (when in power-down state)
+
+        When reading:
+        0b : Device is currently performing a conversion.
+        1b : Device is not currently performing a conversion.
+    */
+};
+
+void dump(Config c);
+
+} // namespace adc_regs
+
+struct Adc
+{
+#if 0
+    constexpr uint8_t Conversion = 0; // P[1:0] = 00b, reset = 0000h
+    constexpr uint8_t Config     = 1; // P[1:0] = 01b, reset = 8583h
+    constexpr uint8_t Lo_thresh  = 2; // P[1:0] = 10b, reset = 8000h
+    constexpr uint8_t Hi_thresh  = 3; // P[1:0] = 11b, reset = 7FFFh
+#else
+  enum class Register
+  {
+    Conversion = 0, // P[1:0] = 00b, reset = 0000h
+    Config     = 1, // P[1:0] = 01b, reset = 8583h
+    Lo_thresh  = 2, // P[1:0] = 10b, reset = 8000h
+    Hi_thresh  = 3, // P[1:0] = 11b, reset = 7FFFh
+  };
+#endif
+
+  Device & device_;
+
+  bool init_done_ = false;
+
+  bool init();
+  void down();
+
+  bool read(Register rn, uint16_t & v);
+  bool read_repeat(uint16_t & v);
+  bool write(Register rn, uint16_t v);
+};
+
+extern const i2c_master_bus_config_t i2c_master_bus_config;
+extern const i2c_device_config_t i2c_device_config;
+
+extern Adc adc;
+
+} // namespace i2c
+} // namespace nc
+
+void i2c_probe(const char * args);
+void i2c_adc_read(const char * args);
+void i2c_adc_read_repeat(const char * args);
+void i2c_adc_write(const char * args);
 
 void pin_dump(const char * args);
 void pin_reset(const char * args);
@@ -1741,6 +1965,13 @@ static const commands_map_t commands_map[] = {
   COMMAND(pin_pull),
 
   COMMAND(i2c_adc),
+
+  COMMAND(i2c_probe),
+  COMMAND(i2c_adc_read),
+  COMMAND(i2c_adc_read_repeat),
+  COMMAND(i2c_adc_write),
+  COMMAND(i2c_adc_config),
+  COMMAND(i2c_adc_single),
 #undef COMMAND
 };
 
@@ -1848,6 +2079,473 @@ void i2c_adc(const char * args)
         i+1, us[i+1], i, us[i], us[i+1] - us[i],
         i, adc[i], volts);
   }
+}
+
+// https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2c.html
+
+//#define I2C_TIME_STATS
+
+constexpr uint32_t I2C_TIMEOUT_MS = 2;
+
+namespace nc {
+namespace i2c {
+
+const i2c_master_bus_config_t i2c_master_bus_config = {
+  .i2c_port = 0, // I2C_MASTER_NUM,
+  .sda_io_num = gpio_num_t(21),
+  .scl_io_num = gpio_num_t(22),
+  .clk_source = I2C_CLK_SRC_DEFAULT,
+  .glitch_ignore_cnt = 7,
+  //.trans_queue_depth = 1, // must '>0' for 'async' mode
+  //.flags = { .enable_internal_pullup = true, },
+  .flags = { .enable_internal_pullup = false, },
+};
+
+Bus bus = {
+  .i2c_master_bus_config_ = i2c_master_bus_config,
+};
+
+// address must be 0x49 (default is 0x48)
+#define i2c_adc_address 0x49
+
+// 400kHz is actually 384kHz
+#define i2c_adc_frequency 400000
+//#define i2c_adc_frequency 650000
+// at 675kHz i2c adc frequently fails
+
+const i2c_device_config_t i2c_device_config = {
+  .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+  .device_address = i2c_adc_address,
+  .scl_speed_hz = i2c_adc_frequency,
+};
+
+Device device = {
+  .bus_ = bus,
+  .i2c_device_config_ = i2c_device_config,
+};
+
+/*
+    esp_err_t i2c_new_master_bus(
+        const i2c_master_bus_config_t * bus_config,
+        i2c_master_bus_handle_t * ret_bus_handle)
+
+    const char * esp_err_to_name(esp_err_t code)
+*/
+bool Bus::init()
+{
+  if (init_done_) { return true; }
+
+  const auto e = i2c_new_master_bus(
+      &i2c_master_bus_config_, &i2c_master_bus_handle_);
+  const auto r = (ESP_OK == e);
+  if (!r) {
+    LOG("'%s()' %s %i '%s'", "i2c_new_master_bus", "failure", e, esp_err_to_name(e));
+  } else {
+    init_done_ = true;
+  }
+  return r;
+}
+
+/*
+    esp_err_t i2c_del_master_bus(i2c_master_bus_handle_t bus_handle)
+*/
+void Bus::down()
+{
+  if (!init_done_) { return; }
+
+  const auto e = i2c_del_master_bus(i2c_master_bus_handle_);
+  const auto r = (ESP_OK == e);
+  if (!r) {
+    LOG("'%s()' %s %i '%s'", "i2c_del_master_bus", "failure", e, esp_err_to_name(e));
+  } else {
+    init_done_ = false;
+  }
+}
+
+/*
+    esp_err_t i2c_master_probe(
+        i2c_master_bus_handle_t bus_handle,
+        uint16_t address,
+        int xfer_timeout_ms)
+*/
+bool Bus::probe(uint16_t address)
+{
+  const auto e = i2c_master_probe(
+      i2c_master_bus_handle_, address, I2C_TIMEOUT_MS);
+  const auto r = (ESP_OK == e);
+  if (!r) {
+    LOG("'%s()' %s %i '%s'", "i2c_master_probe", "failure", e, esp_err_to_name(e));
+  }
+  return r;
+}
+
+
+/*
+    esp_err_t i2c_master_bus_add_device(
+        i2c_master_bus_handle_t bus_handle,
+        const i2c_device_config_t * dev_config,
+        i2c_master_dev_handle_t * ret_handle)
+*/
+bool Device::init()
+{
+  if (init_done_) { return true; }
+
+  const auto e = i2c_master_bus_add_device(
+      bus_.i2c_master_bus_handle_,
+      &i2c_device_config, &i2c_master_dev_handle_);
+  const auto r = (ESP_OK == e);
+  if (!r) {
+    LOG("'%s()' %s %i '%s'", "i2c_master_bus_add_device", "failure", e, esp_err_to_name(e));
+  } else {
+    init_done_ = true;
+  }
+  return r;
+}
+
+/*
+    esp_err_t i2c_master_bus_rm_device(i2c_master_dev_handle_t handle)
+*/
+void Device::down()
+{
+  if (!init_done_) { return; }
+
+  const auto e = i2c_master_bus_rm_device(i2c_master_dev_handle_);
+  const auto r = (ESP_OK == e);
+  if (!r) {
+    LOG("'%s()' %s %i '%s'", "i2c_master_bus_rm_device", "failure", e, esp_err_to_name(e));
+  } else {
+    init_done_ = false;
+  }
+}
+
+/*
+    esp_err_t i2c_master_receive(
+        i2c_master_dev_handle_t i2c_dev,
+        uint8_t * read_buffer, size_t read_size,
+        int xfer_timeout_ms)
+*/
+bool Device::read(uint8_t * read_buffer, size_t read_size)
+{
+#if defined I2C_TIME_STATS
+  uint64_t us1 = esp_timer_get_time();
+#endif
+  const auto e = i2c_master_receive(
+      i2c_master_dev_handle_,
+      read_buffer, read_size,
+      I2C_TIMEOUT_MS);
+#if defined I2C_TIME_STATS
+  uint64_t us2 = esp_timer_get_time();
+  LOG("%s us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, "i2c_master_receive", us2, us1, us2 - us1);
+#endif
+  const auto r = (ESP_OK == e);
+  if (!r) {
+    LOG("'%s()' %s %i '%s'", "i2c_master_receive", "failure", e, esp_err_to_name(e));
+  } else {
+    //hex_dump(read_buffer, read_size);
+  }
+  return r;
+}
+
+/*
+    esp_err_t i2c_master_transmit(
+        i2c_master_dev_handle_t i2c_dev,
+        const uint8_t * write_buffer, size_t write_size,
+        int xfer_timeout_ms)
+*/
+bool Device::write(const uint8_t * write_buffer, size_t write_size)
+{
+  //hex_dump(write_buffer, write_size);
+#if defined I2C_TIME_STATS
+  uint64_t us1 = esp_timer_get_time();
+#endif
+  const auto e = i2c_master_transmit(
+      i2c_master_dev_handle_,
+      write_buffer, write_size,
+      I2C_TIMEOUT_MS);
+#if defined I2C_TIME_STATS
+  uint64_t us2 = esp_timer_get_time();
+  LOG("%s us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, "i2c_master_transmit", us2, us1, us2 - us1);
+#endif
+  const auto r = (ESP_OK == e);
+  if (!r) {
+    LOG("'%s()' %s %i '%s'", "i2c_master_transmit", "failure", e, esp_err_to_name(e));
+  }
+  return r;
+}
+
+/*
+    esp_err_t i2c_master_transmit_receive(
+        i2c_master_dev_handle_t i2c_dev,
+        const uint8_t *write_buffer, size_t write_size,
+        uint8_t *read_buffer, size_t read_size,
+        int xfer_timeout_ms)
+*/
+bool Device::write_read(
+      const uint8_t * write_buffer, size_t write_size,
+      uint8_t * read_buffer, size_t read_size)
+{
+  //hex_dump(write_buffer, write_size);
+#if defined I2C_TIME_STATS
+  uint64_t us1 = esp_timer_get_time();
+#endif
+  const auto e = i2c_master_transmit_receive(
+      i2c_master_dev_handle_,
+      write_buffer, write_size,
+      read_buffer, read_size,
+      I2C_TIMEOUT_MS);
+#if defined I2C_TIME_STATS
+  uint64_t us2 = esp_timer_get_time();
+  LOG("%s us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, "write_read", us2, us1, us2 - us1);
+#endif
+  const auto r = (ESP_OK == e);
+  if (!r) {
+    LOG("'%s()' %s %i '%s'", "i2c_master_transmit_receive", "failure", e, esp_err_to_name(e));
+  } else {
+    //hex_dump(read_buffer, read_size);
+  }
+  return r;
+}
+
+
+bool Adc::read(Register rn, uint16_t & v)
+{
+  const uint8_t write_data[1] = { uint8_t(rn) };
+  uint8_t read_data[2] = { 0, 0 };
+  const auto r = device_.write_read(
+      write_data, sizeof(write_data),
+      read_data, sizeof(read_data));
+  if (r) {
+    v = (uint16_t(read_data[0]) << 8) | read_data[1];
+    //LOG("rn=%u v=0x%04X/%u/%i", unsigned(rn), v, v, int16_t(v));
+  }
+  return r;
+}
+
+bool Adc::read_repeat(uint16_t & v)
+{
+  uint8_t read_data[2] = { 0, 0 };
+  const auto r = device_.read(read_data, sizeof(read_data));
+  if (r) {
+    v = (uint16_t(read_data[0]) << 8) | read_data[1];
+    //LOG("v=0x%04X/%u/%i", v, v, int16_t(v));
+  }
+  return r;
+}
+
+bool Adc::write(Register rn, uint16_t v)
+{
+  const uint8_t write_data[3] = { uint8_t(rn), v >> 8, v & 0xFF };
+  const auto r = device_.write(write_data, sizeof(write_data));
+  if (r) {
+    LOG("rn=%u v=0x%04X/%u/%i", unsigned(rn), v, v, int16_t(v));
+  }
+  return r;
+}
+
+
+namespace adc_regs {
+
+void dump(Config c)
+{
+  LOG("c=0x%04X/%u/%i", c, c, *(uint16_t*) &c);
+
+  static const char * const dr_names[] = {
+    "8", "16", "32", "64", "128", "250", "475", "860"
+  };
+
+  LOG(
+    "OS=%u"
+    " MUX=%u"
+    " PGA=%u"
+    " MODE=%u"
+    " DR=%u/'%s'"
+    " COMP_MODE=%u"
+    " COMP_POL=%u"
+    " COMP_LAT=%u"
+    " COMP_QUE=%u",
+    c.OS,
+    c.MUX,
+    c.PGA,
+    c.MODE,
+    c.DR, dr_names[c.DR],
+    c.COMP_MODE,
+    c.COMP_POL,
+    c.COMP_LAT,
+    c.COMP_QUE
+  );
+}
+
+} // namespace adc_regs
+
+
+Adc adc = {
+  .device_ = device,
+};
+
+bool Adc::init()
+{
+  if (init_done_) { return true; }
+
+  if (!bus.init()) { return false; }
+  if (!device.init()) {
+    bus.down();
+    return false;
+  }
+  init_done_ = true;
+  return true;
+}
+
+void Adc::down()
+{
+  if (!init_done_) { return; }
+
+  device.down();
+  bus.down();
+
+  init_done_ = false;
+}
+
+} // namespace i2c
+} // namespace nc
+
+void i2c_probe(const char * args)
+{
+  unsigned device = command_args_to_ul(args, nullptr);
+  LOG("device=0x%X/%u", device, device);
+  if (!::nc::i2c::bus.init_done_) {
+    if (!::nc::i2c::bus.init()) { return; }
+  }
+  const auto probe_r = ::nc::i2c::bus.probe(device);
+  LOG("probe_r=%i", probe_r);
+}
+
+void i2c_adc_read(const char * args)
+{
+  unsigned register_number = command_args_to_ul(args, nullptr);
+  LOG("register_number=0x%X/%u", register_number, register_number);
+  if (register_number >= 4) {
+    LOG("ERROR: register_number must be < 4");
+    return;
+  }
+  if (!::nc::i2c::adc.init_done_ && !::nc::i2c::adc.init()) { return; }
+  uint16_t v = 0;
+  const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register(register_number), v);
+  LOG("r=%i v=0x%04X/%u/%i", r, v, v, int16_t(v));
+}
+
+void i2c_adc_read_repeat(const char * args)
+{
+  if (!::nc::i2c::adc.init_done_ && !::nc::i2c::adc.init()) { return; }
+  uint16_t v = 0;
+  const auto r = ::nc::i2c::adc.read_repeat(v);
+  LOG("r=%i v=0x%04X/%u/%i", r, v, v, int16_t(v));
+}
+
+void i2c_adc_write(const char * args)
+{
+  const char * tail = NULL;
+  unsigned register_number = command_args_to_ul(args, &tail);
+  LOG("register_number=0x%X/%u", register_number, register_number);
+  if (register_number >= 4) {
+    LOG("ERROR: register_number must be < 4");
+    return;
+  }
+
+  if (!::nc::i2c::adc.init_done_ && !::nc::i2c::adc.init()) { return; }
+
+  if (tail && *tail) {
+    unsigned v = command_args_to_ul(tail, nullptr);
+    const auto r = ::nc::i2c::adc.write(::nc::i2c::Adc::Register(register_number), v);
+    LOG("r=%i v=0x%04X/%u/%i", r, v, v, int16_t(v));
+  }
+
+  {
+    uint16_t v = 0;
+    const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register(register_number), v);
+    LOG("r=%i v=0x%04X/%u/%i", r, v, v, int16_t(v));
+  }
+}
+
+void i2c_adc_config(const char * args)
+{
+  if (!::nc::i2c::adc.init_done_ && !::nc::i2c::adc.init()) { return; }
+
+  uint16_t v = 0;
+  const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Config, v);
+  LOG("r=%i v=0x%04X/%u/%i", r, v, v, int16_t(v));
+  ::nc::i2c::adc_regs::dump( *(::nc::i2c::adc_regs::Config*) &v);
+}
+
+void i2c_adc_single(const char * args)
+{
+  unsigned channel = command_args_to_ul(args, nullptr);
+  LOG("channel=%u", channel);
+  if (channel >= 4) {
+    LOG("ERROR: channel must be < 4");
+    return;
+  }
+
+  if (!::nc::i2c::adc.init_done_ && !::nc::i2c::adc.init()) { return; }
+
+  ::nc::i2c::adc_regs::Config c = {
+    .COMP_QUE = 3,
+    .COMP_LAT = 0,
+    .COMP_POL = 0,
+    .COMP_MODE = 0,
+    .DR = 7,
+    .MODE = 1,
+    //.PGA = 2,
+    .PGA = 0,
+    .MUX = 4 | channel,
+    .OS = 1,
+  };
+  ::nc::i2c::adc_regs::dump(c);
+
+  uint64_t us1 = esp_timer_get_time();
+  {
+    uint16_t v = *(int16_t*) &c;
+    const auto r = ::nc::i2c::adc.write(::nc::i2c::Adc::Register::Config, v);
+    //LOG("r=%i", r);
+    if (!r) { return; }
+  }
+  uint64_t us2 = esp_timer_get_time();
+  unsigned wait_count = 0;
+  bool converting;
+  do {
+    uint16_t v = 0;
+    const auto r = ::nc::i2c::adc.read_repeat(v);
+    //LOG("r=%i v=0x%04X/%u/%i", r, v, v, int16_t(v));
+    if (!r) { return; }
+    ++wait_count;
+    if (wait_count > 100) {
+      LOG("wait_count limit exceeded");
+      break;
+    }
+    const auto c = *(::nc::i2c::adc_regs::Config*) &v;
+    converting = !c.OS;
+  } while (converting);
+  uint64_t us3 = esp_timer_get_time();
+#if 0
+  {
+    uint16_t v = 0;
+    const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Config, v);
+    if (!r) { return; }
+    LOG("r=%i v=0x%04X/%u/%i", r, v, v, int16_t(v));
+  }
+#endif
+  uint64_t us4;
+  {
+    uint16_t v = 0;
+    const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Conversion, v);
+    us4 = esp_timer_get_time();
+    if (!r) { return; }
+    LOG("r=%i v=0x%04X/%u/%i '%s'", r, v, v, int16_t(v), "Conversion");
+  }
+  LOG("%s us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, "write_read", us2, us1, us2 - us1);
+  LOG("%s us3=%" PRIu64 " - us2=%" PRIu64 " =%" PRIu64, "write_read", us3, us2, us3 - us2);
+  LOG("%s us4=%" PRIu64 " - us3=%" PRIu64 " =%" PRIu64, "write_read", us4, us3, us4 - us3);
+  LOG("%s us4=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, "write_read", us4, us1, us4 - us1);
+  LOG("wait_count=%u", wait_count);
 }
 
 void pin_dump(const char * args)
