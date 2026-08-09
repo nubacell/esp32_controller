@@ -57,6 +57,8 @@ static const commands_map_t commands_map[] = {
   COMMAND(pin_level),
   COMMAND(pin_mode),
   COMMAND(pin_pull),
+
+  COMMAND(i2c_adc),
 #undef COMMAND
 };
 
