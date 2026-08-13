@@ -204,6 +204,8 @@ struct Adc
   bool read(Register rn, uint16_t & v);
   bool read_repeat(uint16_t & v);
   bool write(Register rn, uint16_t v);
+
+  bool start_single_conversion(unsigned channel);
 };
 
 extern const i2c_master_bus_config_t i2c_master_bus_config;

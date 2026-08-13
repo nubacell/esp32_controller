@@ -1023,6 +1023,8 @@ struct Adc
   bool read(Register rn, uint16_t & v);
   bool read_repeat(uint16_t & v);
   bool write(Register rn, uint16_t v);
+
+  bool start_single_conversion(unsigned channel);
 };
 
 extern const i2c_master_bus_config_t i2c_master_bus_config;
@@ -1037,6 +1039,52 @@ void i2c_probe(const char * args);
 void i2c_adc_read(const char * args);
 void i2c_adc_read_repeat(const char * args);
 void i2c_adc_write(const char * args);
+
+#define I_METER_CHANNELS_COUNT 2
+
+struct I_Meter
+  : Runnable
+{
+  uint64_t start_time_us_;
+  uint64_t finish_time_us_;
+
+  uint32_t start_time_ms_;
+  uint32_t finish_time_ms_;
+  uint32_t timeout_time_ms_;
+
+  bool run_ = false;
+
+  enum class State {
+    init,
+    init_failed,
+    idle,
+    running,
+    run_failed,
+  };
+  State state_ = State::init;
+  static const char * to_string(State state);
+  void state(State new_state);
+
+  static constexpr uint32_t single_conversion_timeout_ms = 5;
+
+  uint16_t conversion_results[I_METER_CHANNELS_COUNT];
+  uint8_t channel_;
+
+  void on_state_init(uint32_t now_ms);
+  void on_state_init_failed(uint32_t now_ms);
+  void on_state_idle(uint32_t now_ms);
+  void on_state_running(uint32_t now_ms);
+  void on_state_run_failed(uint32_t now_ms);
+
+  void on_loop(uint32_t now_ms) override;
+
+  void run()
+  {
+    run_ = true;
+  }
+};
+
+extern I_Meter iMeter;
 
 void pin_dump(const char * args);
 void pin_reset(const char * args);
@@ -1972,6 +2020,8 @@ static const commands_map_t commands_map[] = {
   COMMAND(i2c_adc_write),
   COMMAND(i2c_adc_config),
   COMMAND(i2c_adc_single),
+
+  COMMAND(i2c_adc_run),
 #undef COMMAND
 };
 
@@ -2020,6 +2070,34 @@ command_s_to_fn(
 }
 
 Controller controller;
+
+namespace nc {
+namespace i2c {
+
+bool Adc::start_single_conversion(unsigned channel)
+{
+  const adc_regs::Config c = {
+    .COMP_QUE = 3,
+    .COMP_LAT = 0,
+    .COMP_POL = 0,
+    .COMP_MODE = 0,
+    .DR = 7,
+    .MODE = 1,
+    //.PGA = 2,
+    .PGA = 0,
+    .MUX = 4 | channel,
+    .OS = 1,
+  };
+  //LOG("sizeof(adc_regs::Config)=%zu", sizeof(adc_regs::Config));
+  //adc_regs::dump(c);
+
+  const auto v = *(uint16_t*) &c;
+  const auto r = write(Register::Config, v);
+  return r;
+}
+
+} // namespace i2c
+} // namespace nc
 
 //TwoWire twoWire_;
 Adafruit_ADS1115 i2c_adc_;
@@ -2336,9 +2414,11 @@ bool Adc::write(Register rn, uint16_t v)
 {
   const uint8_t write_data[3] = { uint8_t(rn), v >> 8, v & 0xFF };
   const auto r = device_.write(write_data, sizeof(write_data));
+#if 0
   if (r) {
     LOG("rn=%u v=0x%04X/%u/%i", unsigned(rn), v, v, int16_t(v));
   }
+#endif
   return r;
 }
 
@@ -2347,7 +2427,12 @@ namespace adc_regs {
 
 void dump(Config c)
 {
-  LOG("c=0x%04X/%u/%i", c, c, *(uint16_t*) &c);
+#if 1
+  {
+    const auto v = *(uint16_t*) &c;
+    LOG("c=0x%04X/%u/%i", v, v, int16_t(v));
+  }
+#endif
 
   static const char * const dr_names[] = {
     "8", "16", "32", "64", "128", "250", "475", "860"
@@ -2487,24 +2572,9 @@ void i2c_adc_single(const char * args)
 
   if (!::nc::i2c::adc.init_done_ && !::nc::i2c::adc.init()) { return; }
 
-  ::nc::i2c::adc_regs::Config c = {
-    .COMP_QUE = 3,
-    .COMP_LAT = 0,
-    .COMP_POL = 0,
-    .COMP_MODE = 0,
-    .DR = 7,
-    .MODE = 1,
-    //.PGA = 2,
-    .PGA = 0,
-    .MUX = 4 | channel,
-    .OS = 1,
-  };
-  ::nc::i2c::adc_regs::dump(c);
-
   uint64_t us1 = esp_timer_get_time();
   {
-    uint16_t v = *(int16_t*) &c;
-    const auto r = ::nc::i2c::adc.write(::nc::i2c::Adc::Register::Config, v);
+    const auto r = ::nc::i2c::adc.start_single_conversion(channel);
     //LOG("r=%i", r);
     if (!r) { return; }
   }
@@ -2546,6 +2616,159 @@ void i2c_adc_single(const char * args)
   LOG("%s us4=%" PRIu64 " - us3=%" PRIu64 " =%" PRIu64, "write_read", us4, us3, us4 - us3);
   LOG("%s us4=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, "write_read", us4, us1, us4 - us1);
   LOG("wait_count=%u", wait_count);
+}
+
+void i2c_adc_run(const char * args)
+{
+  (void) args;
+  iMeter.run();
+}
+
+I_Meter iMeter;
+
+void I_Meter::on_loop(uint32_t now_ms)
+{
+  switch (state_) {
+#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
+    CASE_CALL(init)
+    CASE_CALL(init_failed)
+    CASE_CALL(idle)
+    CASE_CALL(running)
+    CASE_CALL(run_failed)
+#undef CASE_CALL
+    default:
+      //LOG("ERROR: Unexpected state=%u", state_);
+      LOG("ERROR: Unexpected state=%u/'%s'", state_, to_string(state_));
+      break;
+  }
+}
+
+void I_Meter::on_state_idle(uint32_t now_ms)
+{
+  if (run_) {
+    run_ = false;
+
+    start_time_us_ = esp_timer_get_time();
+    start_time_ms_ = now_ms;
+
+    channel_ = 0;
+
+    //constexpr uint32_t single_conversion_timeout_ms = 2;
+    timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
+    //LOG("timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64, timeout_time_ms_, now_ms, esp_timer_get_time());
+
+    state(
+      (::nc::i2c::adc.start_single_conversion(channel_))
+        ? State::running
+        : State::run_failed
+    );
+  }
+}
+
+void I_Meter::on_state_init(uint32_t now_ms)
+{
+  state( (::nc::i2c::adc.init()) ? State::idle : State::init_failed);
+}
+
+// Can be used to implement delay before init retry
+void I_Meter::on_state_init_failed(uint32_t now_ms)
+{
+  (void) now_ms;
+  state(State::idle);
+}
+
+void I_Meter::on_state_run_failed(uint32_t now_ms)
+{
+  (void) now_ms;
+  state(State::idle);
+}
+
+/*
+    After 'start_single_conversion()' 'index register' already refers to
+    'Config' register and 'read_repeat()' may be used to read 'Config'
+    register.
+*/
+
+void I_Meter::on_state_running(uint32_t now_ms)
+{
+  ::nc::i2c::adc_regs::Config c = {};
+  if (!::nc::i2c::adc.read_repeat( *(uint16_t*) &c)) {
+    state(State::run_failed);
+    return;
+  }
+
+  //LOG("sizeof(::nc::i2c::adc_regs::Config)=%zu", sizeof(::nc::i2c::adc_regs::Config));
+  //::nc::i2c::adc_regs::dump(c);
+
+  const auto converting = !c.OS; // 0 == ADC performs conversion
+  if (converting) {
+    if (timeout_time_ms_ <= now_ms) {
+      LOG("WARNING: %s %s (timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64 ")",
+          "i2c ADC 'conversion'", "timeout", timeout_time_ms_, now_ms,
+          esp_timer_get_time());
+      state(State::run_failed);
+    }
+    return;
+  }
+
+  uint16_t v = 0;
+  const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Conversion, v);
+  if (!r) {
+    state(State::run_failed);
+    return;
+  }
+  conversion_results[channel_] = v;
+  //LOG("channel=%u v=0x%04X/%u/%i", channel_, v, v, int16_t(v));
+
+  ++channel_;
+  if (channel_ < I_METER_CHANNELS_COUNT) {
+
+    //constexpr uint32_t single_conversion_timeout_ms = 2;
+    timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
+    //LOG("timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64, timeout_time_ms_, now_ms, esp_timer_get_time());
+
+    if (!::nc::i2c::adc.start_single_conversion(channel_)) {
+      state(State::run_failed);
+    }
+    return;
+  }
+
+  finish_time_us_ = esp_timer_get_time();
+  finish_time_ms_ = now_ms;
+
+  LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64,
+      finish_time_us_, start_time_us_, finish_time_us_ - start_time_us_);
+  LOG("ms2=%" PRIu32 " - ms1=%" PRIu32 " =%" PRIu32,
+      finish_time_ms_, start_time_ms_, finish_time_ms_ - start_time_ms_);
+
+  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
+    const auto v = conversion_results[i];
+    const auto volts = double(v) * 6.144 / 32768.;
+    LOG("channel=%u v=0x%04X/%u/%i volts=%f", i, v, v, int16_t(v), volts);
+  }
+
+  state(State::idle);
+}
+
+const char * I_Meter::to_string(State state)
+{
+  static const char * const state_names[] = {
+    "init",
+    "init_failed",
+    "idle",
+    "running",
+    "run_failed",
+  };
+  const auto i = unsigned(state);
+  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
+}
+
+void I_Meter::state(State new_state)
+{
+  const auto old_state_name = to_string(state_);
+  state_ = new_state;
+  const auto new_state_name = to_string(state_);
+  LOG("'%s' -> '%s'", old_state_name, new_state_name);
 }
 
 void pin_dump(const char * args)
@@ -4581,6 +4804,7 @@ void loop()
   }
 
   uartDevices_on_loop(now_ms);
+  iMeter.on_loop(now_ms);
   spiDevice.on_loop(now_ms);
   test.on_loop(now_ms);
 

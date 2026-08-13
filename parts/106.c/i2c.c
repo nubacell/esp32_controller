@@ -254,9 +254,11 @@ bool Adc::write(Register rn, uint16_t v)
 {
   const uint8_t write_data[3] = { uint8_t(rn), v >> 8, v & 0xFF };
   const auto r = device_.write(write_data, sizeof(write_data));
+#if 0
   if (r) {
     LOG("rn=%u v=0x%04X/%u/%i", unsigned(rn), v, v, int16_t(v));
   }
+#endif
   return r;
 }
 
@@ -265,7 +267,12 @@ namespace adc_regs {
 
 void dump(Config c)
 {
-  LOG("c=0x%04X/%u/%i", c, c, *(uint16_t*) &c);
+#if 1
+  {
+    const auto v = *(uint16_t*) &c;
+    LOG("c=0x%04X/%u/%i", v, v, int16_t(v));
+  }
+#endif
 
   static const char * const dr_names[] = {
     "8", "16", "32", "64", "128", "250", "475", "860"
@@ -405,24 +412,9 @@ void i2c_adc_single(const char * args)
 
   if (!::nc::i2c::adc.init_done_ && !::nc::i2c::adc.init()) { return; }
 
-  ::nc::i2c::adc_regs::Config c = {
-    .COMP_QUE = 3,
-    .COMP_LAT = 0,
-    .COMP_POL = 0,
-    .COMP_MODE = 0,
-    .DR = 7,
-    .MODE = 1,
-    //.PGA = 2,
-    .PGA = 0,
-    .MUX = 4 | channel,
-    .OS = 1,
-  };
-  ::nc::i2c::adc_regs::dump(c);
-
   uint64_t us1 = esp_timer_get_time();
   {
-    uint16_t v = *(int16_t*) &c;
-    const auto r = ::nc::i2c::adc.write(::nc::i2c::Adc::Register::Config, v);
+    const auto r = ::nc::i2c::adc.start_single_conversion(channel);
     //LOG("r=%i", r);
     if (!r) { return; }
   }

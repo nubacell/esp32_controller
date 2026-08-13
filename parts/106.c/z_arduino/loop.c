@@ -28,6 +28,7 @@ void loop()
   }
 
   uartDevices_on_loop(now_ms);
+  iMeter.on_loop(now_ms);
   spiDevice.on_loop(now_ms);
   test.on_loop(now_ms);
 

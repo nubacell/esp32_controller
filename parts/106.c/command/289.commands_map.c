@@ -66,6 +66,8 @@ static const commands_map_t commands_map[] = {
   COMMAND(i2c_adc_write),
   COMMAND(i2c_adc_config),
   COMMAND(i2c_adc_single),
+
+  COMMAND(i2c_adc_run),
 #undef COMMAND
 };
 
