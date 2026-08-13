@@ -52,6 +52,8 @@ void I_Meter::on_state_running(uint32_t now_ms)
   finish_time_us_ = esp_timer_get_time();
   finish_time_ms_ = now_ms;
 
+  measurementsValid_ = true;
+
   LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64,
       finish_time_us_, start_time_us_, finish_time_us_ - start_time_us_);
   LOG("ms2=%" PRIu32 " - ms1=%" PRIu32 " =%" PRIu32,
@@ -62,6 +64,8 @@ void I_Meter::on_state_running(uint32_t now_ms)
     const auto volts = double(v) * 6.144 / 32768.;
     LOG("channel=%u v=0x%04X/%u/%i volts=%f", i, v, v, int16_t(v), volts);
   }
+
+  iMeter.reportMeasurements(0, 0);
 
   state(State::idle);
 }

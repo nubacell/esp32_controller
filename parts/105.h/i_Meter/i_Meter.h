@@ -12,6 +12,7 @@ struct I_Meter
   uint32_t timeout_time_ms_;
 
   bool run_ = false;
+  bool measurementsValid_ = false;
 
   enum class State {
     init,
@@ -41,6 +42,12 @@ struct I_Meter
   {
     run_ = true;
   }
+
+  bool isMeasurementFinished() const { return State::idle == state_; }
+  bool areMeasurementsValid() const { return measurementsValid_; }
+  void reportMeasurements(
+      uint32_t now_ms,
+      uint32_t test_start_time_ms) const;
 };
 
 extern I_Meter iMeter;

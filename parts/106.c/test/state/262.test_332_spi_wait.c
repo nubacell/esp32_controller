@@ -7,13 +7,16 @@ void Test::on_state_spi_wait(uint32_t now_ms)
   if (abort_) {
     state(State::abort);
   } else
-  if (spiDevice.isTransferFinished()) {
+  if (spiDevice.isTransferFinished() && iMeter.isMeasurementFinished()) {
     //LOG("'transferFinished'");
 
     // --- 'spi transfer end' ---
 
     if (!spiDevice.areSensorsDataValid()) {
       LOG("ERROR: received sensors' data are invalid");
+      state(State::abort);
+    } else if (!iMeter.areMeasurementsValid()) {
+      LOG("ERROR: 'current' measurements are invalid");
       state(State::abort);
     } else {
 #if 0
@@ -31,14 +34,22 @@ void Test::on_state_spi_wait(uint32_t now_ms)
       // report sensors' data
       //SensorDevices_Data_report_all();
       rpi::SensorDevices_Data_report_all(now_ms, test_start_time_ms_);
+      iMeter.reportMeasurements(now_ms, test_start_time_ms_);
 
       // start next sub step
       state(State::sub_step_next);
 
     }
   } else
+#if 1
+  if (measure_timeout_time_ms_ <= now_ms) {
+    LOG("ERROR: measurements timeout");
+    state(State::abort);
+  }
+#else
   if (spi_timeout_time_ms_ <= now_ms) {
     LOG("ERROR: sensors' data SPI transfer timeout");
     state(State::abort);
   }
+#endif
 }

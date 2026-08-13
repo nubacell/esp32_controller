@@ -3,6 +3,7 @@ void I_Meter::on_state_idle(uint32_t now_ms)
 {
   if (run_) {
     run_ = false;
+    measurementsValid_ = false;
 
     start_time_us_ = esp_timer_get_time();
     start_time_ms_ = now_ms;

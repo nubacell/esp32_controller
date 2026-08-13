@@ -1053,6 +1053,7 @@ struct I_Meter
   uint32_t timeout_time_ms_;
 
   bool run_ = false;
+  bool measurementsValid_ = false;
 
   enum class State {
     init,
@@ -1082,6 +1083,12 @@ struct I_Meter
   {
     run_ = true;
   }
+
+  bool isMeasurementFinished() const { return State::idle == state_; }
+  bool areMeasurementsValid() const { return measurementsValid_; }
+  void reportMeasurements(
+      uint32_t now_ms,
+      uint32_t test_start_time_ms) const;
 };
 
 extern I_Meter iMeter;
@@ -1316,6 +1323,8 @@ struct Test
   uint32_t step_end_time_ms_;
   uint32_t sub_step_end_time_ms_;
   uint32_t spi_timeout_time_ms_;
+  //uint32_t i2c_timeout_time_ms_;
+  uint32_t measure_timeout_time_ms_;
 
   int32_t I_A = 0;
   uint32_t PS_V_max = 0;
@@ -2643,10 +2652,75 @@ void I_Meter::on_loop(uint32_t now_ms)
   }
 }
 
+#define I_Meter_Measurements_STRLEN ( \
+  CONSTSTRLEN("/TEST/I2C") \
+  + CONSTSTRLEN("  123456789") \
+  + CONSTSTRLEN("  123456789") \
+  + CONSTSTRLEN("  123456789") \
+  + ( \
+    + CONSTSTRLEN(" 12345") \
+    + CONSTSTRLEN(" 61440000") \
+    + CONSTSTRLEN(" 6.1440") \
+  ) * I_METER_CHANNELS_COUNT \
+  + CONSTSTRLEN(" xx") \
+  + CONSTSTRLEN("\n") \
+)
+
+void I_Meter::reportMeasurements(
+    uint32_t now_ms,
+    uint32_t test_start_time_ms) const
+{
+  char buffer[I_Meter_Measurements_STRLEN+1];
+  size_t buffer_size = sizeof(buffer);
+
+#if 1
+  const auto us1 = esp_timer_get_time(); // uint64_t
+#endif
+
+  size_t used = safe_snprintf(buffer, buffer_size, "/TEST/I2C");
+
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, " %9u",
+        now_ms - test_start_time_ms);
+  }
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, " %9u",
+        start_time_ms_ - test_start_time_ms);
+  }
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, " %9u",
+        finish_time_ms_ - test_start_time_ms);
+  }
+
+  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT && buffer_size > used; ++i) {
+    const size_t left = buffer_size - used;
+    const auto v = conversion_results[i];
+    // 6.144 / 32768. = 0.1875
+    const auto volts = double(v) * 6.144 / 32768.;
+    used += safe_snprintf(&buffer[used], left, " %5u %8u %6.4f", v, v * 1875, volts);
+  }
+
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, " xx\n");
+  }
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+
+#if 1
+  const auto us2 = esp_timer_get_time(); // uint64_t
+  LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, us2, us1, us2 - us1);
+#endif
+}
+
 void I_Meter::on_state_idle(uint32_t now_ms)
 {
   if (run_) {
     run_ = false;
+    measurementsValid_ = false;
 
     start_time_us_ = esp_timer_get_time();
     start_time_ms_ = now_ms;
@@ -2736,6 +2810,8 @@ void I_Meter::on_state_running(uint32_t now_ms)
   finish_time_us_ = esp_timer_get_time();
   finish_time_ms_ = now_ms;
 
+  measurementsValid_ = true;
+
   LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64,
       finish_time_us_, start_time_us_, finish_time_us_ - start_time_us_);
   LOG("ms2=%" PRIu32 " - ms1=%" PRIu32 " =%" PRIu32,
@@ -2746,6 +2822,8 @@ void I_Meter::on_state_running(uint32_t now_ms)
     const auto volts = double(v) * 6.144 / 32768.;
     LOG("channel=%u v=0x%04X/%u/%i volts=%f", i, v, v, int16_t(v), volts);
   }
+
+  iMeter.reportMeasurements(0, 0);
 
   state(State::idle);
 }
@@ -4093,14 +4171,21 @@ void Test::on_state_sub_step_measure(uint32_t now_ms)
   // --- 'sub_step_measure' ---
 
   // --- 'spi_init' ---
+/*
   // FIXME: Use correct 'spi_timeout_ms'
   constexpr uint32_t spi_timeout_ms = 50;
   //constexpr uint32_t spi_timeout_ms = 5;
   spi_timeout_time_ms_ = now_ms + spi_timeout_ms;
+*/
+
+  constexpr uint32_t measure_timeout_ms = 10;
+  measure_timeout_time_ms_ = now_ms + measure_timeout_ms;
+
 #if 0
   LOG(". spi_timeout_time_ms_=%u", spi_timeout_time_ms_);
 #endif
   spiDevice.run();
+  iMeter.run();
   state(State::spi_wait);
 }
 
@@ -4112,13 +4197,16 @@ void Test::on_state_spi_wait(uint32_t now_ms)
   if (abort_) {
     state(State::abort);
   } else
-  if (spiDevice.isTransferFinished()) {
+  if (spiDevice.isTransferFinished() && iMeter.isMeasurementFinished()) {
     //LOG("'transferFinished'");
 
     // --- 'spi transfer end' ---
 
     if (!spiDevice.areSensorsDataValid()) {
       LOG("ERROR: received sensors' data are invalid");
+      state(State::abort);
+    } else if (!iMeter.areMeasurementsValid()) {
+      LOG("ERROR: 'current' measurements are invalid");
       state(State::abort);
     } else {
 #if 0
@@ -4136,16 +4224,24 @@ void Test::on_state_spi_wait(uint32_t now_ms)
       // report sensors' data
       //SensorDevices_Data_report_all();
       rpi::SensorDevices_Data_report_all(now_ms, test_start_time_ms_);
+      iMeter.reportMeasurements(now_ms, test_start_time_ms_);
 
       // start next sub step
       state(State::sub_step_next);
 
     }
   } else
+#if 1
+  if (measure_timeout_time_ms_ <= now_ms) {
+    LOG("ERROR: measurements timeout");
+    state(State::abort);
+  }
+#else
   if (spi_timeout_time_ms_ <= now_ms) {
     LOG("ERROR: sensors' data SPI transfer timeout");
     state(State::abort);
   }
+#endif
 }
 
 void Test::on_state_sub_step_next(uint32_t now_ms)
