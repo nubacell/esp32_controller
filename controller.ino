@@ -1247,6 +1247,7 @@ struct SPI_Device
     init_failed,
     idle,
     running,
+    run_failed,
   };
   State state_ = State::init;
   static const char * to_string(State state);
@@ -1256,6 +1257,7 @@ struct SPI_Device
   void on_state_init_failed(uint32_t now_ms);
   void on_state_idle(uint32_t now_ms);
   void on_state_running(uint32_t now_ms);
+  void on_state_run_failed(uint32_t now_ms);
 
   void on_loop(uint32_t now_ms) override;
 
@@ -3539,6 +3541,7 @@ const char * SPI_Device::to_string(State state)
     "init_failed",
     "idle",
     "running",
+    "run_failed",
   };
   const auto i = unsigned(state);
   return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
@@ -3629,7 +3632,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
     gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
 
     //scope_sync_on(false);
-    state(State::idle);
+    state(State::run_failed);
   }
 }
 
@@ -3641,6 +3644,7 @@ void SPI_Device::on_loop(uint32_t now_ms)
     CASE_CALL(init_failed)
     CASE_CALL(idle)
     CASE_CALL(running)
+    CASE_CALL(run_failed)
 #undef CASE_CALL
     default:
       //LOG("ERROR: Unexpected state=%u", state_);
@@ -3897,6 +3901,19 @@ static void SensorDevices_Data_report_all(
 }
 
 } // namespace rpi
+
+/*
+    SPI transfer can fail. It results in 'timeout'.
+    It can be fixed by chip re-init.
+*/
+void SPI_Device::on_state_run_failed(uint32_t now_ms)
+{
+  (void) now_ms;
+
+  spi_chip_down();
+
+  state(State::init);
+}
 
 Test test;
 

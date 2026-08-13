@@ -288,6 +288,7 @@ const char * SPI_Device::to_string(State state)
     "init_failed",
     "idle",
     "running",
+    "run_failed",
   };
   const auto i = unsigned(state);
   return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
@@ -378,7 +379,7 @@ void SPI_Device::on_state_running(uint32_t now_ms)
     gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
 
     //scope_sync_on(false);
-    state(State::idle);
+    state(State::run_failed);
   }
 }
 
@@ -390,6 +391,7 @@ void SPI_Device::on_loop(uint32_t now_ms)
     CASE_CALL(init_failed)
     CASE_CALL(idle)
     CASE_CALL(running)
+    CASE_CALL(run_failed)
 #undef CASE_CALL
     default:
       //LOG("ERROR: Unexpected state=%u", state_);

@@ -73,6 +73,7 @@ struct SPI_Device
     init_failed,
     idle,
     running,
+    run_failed,
   };
   State state_ = State::init;
   static const char * to_string(State state);
@@ -82,6 +83,7 @@ struct SPI_Device
   void on_state_init_failed(uint32_t now_ms);
   void on_state_idle(uint32_t now_ms);
   void on_state_running(uint32_t now_ms);
+  void on_state_run_failed(uint32_t now_ms);
 
   void on_loop(uint32_t now_ms) override;
 
