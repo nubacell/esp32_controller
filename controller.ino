@@ -2033,6 +2033,7 @@ static const commands_map_t commands_map[] = {
   COMMAND(i2c_adc_single),
 
   COMMAND(i2c_adc_run),
+  COMMAND(i2c_adc_report),
 #undef COMMAND
 };
 
@@ -2629,6 +2630,12 @@ void i2c_adc_single(const char * args)
   LOG("wait_count=%u", wait_count);
 }
 
+void i2c_adc_report(const char * args)
+{
+  (void) args;
+  iMeter.reportMeasurements(0, 0);
+}
+
 void i2c_adc_run(const char * args)
 {
   (void) args;
@@ -2675,7 +2682,7 @@ void I_Meter::reportMeasurements(
   char buffer[I_Meter_Measurements_STRLEN+1];
   size_t buffer_size = sizeof(buffer);
 
-#if 1
+#if 0
   const auto us1 = esp_timer_get_time(); // uint64_t
 #endif
 
@@ -2712,7 +2719,7 @@ void I_Meter::reportMeasurements(
 
   SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
 
-#if 1
+#if 0
   const auto us2 = esp_timer_get_time(); // uint64_t
   LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, us2, us1, us2 - us1);
 #endif
@@ -2814,6 +2821,7 @@ void I_Meter::on_state_running(uint32_t now_ms)
 
   measurementsValid_ = true;
 
+#if 0
   LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64,
       finish_time_us_, start_time_us_, finish_time_us_ - start_time_us_);
   LOG("ms2=%" PRIu32 " - ms1=%" PRIu32 " =%" PRIu32,
@@ -2826,6 +2834,7 @@ void I_Meter::on_state_running(uint32_t now_ms)
   }
 
   iMeter.reportMeasurements(0, 0);
+#endif
 
   state(State::idle);
 }

@@ -54,6 +54,7 @@ void I_Meter::on_state_running(uint32_t now_ms)
 
   measurementsValid_ = true;
 
+#if 0
   LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64,
       finish_time_us_, start_time_us_, finish_time_us_ - start_time_us_);
   LOG("ms2=%" PRIu32 " - ms1=%" PRIu32 " =%" PRIu32,
@@ -66,6 +67,7 @@ void I_Meter::on_state_running(uint32_t now_ms)
   }
 
   iMeter.reportMeasurements(0, 0);
+#endif
 
   state(State::idle);
 }

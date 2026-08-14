@@ -20,7 +20,7 @@ void I_Meter::reportMeasurements(
   char buffer[I_Meter_Measurements_STRLEN+1];
   size_t buffer_size = sizeof(buffer);
 
-#if 1
+#if 0
   const auto us1 = esp_timer_get_time(); // uint64_t
 #endif
 
@@ -57,7 +57,7 @@ void I_Meter::reportMeasurements(
 
   SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
 
-#if 1
+#if 0
   const auto us2 = esp_timer_get_time(); // uint64_t
   LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64, us2, us1, us2 - us1);
 #endif
