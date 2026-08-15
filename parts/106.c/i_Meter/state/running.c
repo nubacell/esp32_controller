@@ -7,17 +7,13 @@
 
 void I_Meter::on_state_running(uint32_t now_ms)
 {
-  ::nc::i2c::adc_regs::Config c = {};
-  if (!::nc::i2c::adc.read_repeat( *(uint16_t*) &c)) {
+  bool ready;
+  if (!poll(ready)) {
     state(State::run_failed);
     return;
   }
 
-  //LOG("sizeof(::nc::i2c::adc_regs::Config)=%zu", sizeof(::nc::i2c::adc_regs::Config));
-  //::nc::i2c::adc_regs::dump(c);
-
-  const auto converting = !c.OS; // 0 == ADC performs conversion
-  if (converting) {
+  if (!ready) {
     if (timeout_time_ms_ <= now_ms) {
       LOG("WARNING: %s %s (timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64 ")",
           "i2c ADC 'conversion'", "timeout", timeout_time_ms_, now_ms,
@@ -28,7 +24,7 @@ void I_Meter::on_state_running(uint32_t now_ms)
   }
 
   uint16_t v = 0;
-  const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Conversion, v);
+  const auto r = read(v);
   if (!r) {
     state(State::run_failed);
     return;
@@ -43,7 +39,7 @@ void I_Meter::on_state_running(uint32_t now_ms)
     timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
     //LOG("timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64, timeout_time_ms_, now_ms, esp_timer_get_time());
 
-    if (!::nc::i2c::adc.start_single_conversion(channel_)) {
+    if (!start()) {
       state(State::run_failed);
     }
     return;

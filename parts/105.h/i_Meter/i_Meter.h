@@ -30,6 +30,19 @@ struct I_Meter
   uint16_t conversion_results[I_METER_CHANNELS_COUNT];
   uint8_t channel_;
 
+  struct Stats {
+    unsigned start_;
+    unsigned start_timeout_;
+    unsigned poll_;
+    unsigned poll_timeout_;
+    unsigned read_;
+    unsigned read_timeout_;
+  } stats_[I_METER_CHANNELS_COUNT];
+
+  bool start();
+  bool poll(bool & ready);
+  bool read(uint16_t & v);
+
   void on_state_init(uint32_t now_ms);
   void on_state_init_failed(uint32_t now_ms);
   void on_state_idle(uint32_t now_ms);
@@ -48,6 +61,8 @@ struct I_Meter
   void reportMeasurements(
       uint32_t now_ms,
       uint32_t test_start_time_ms) const;
+  void reportStats() const;
+  size_t reportStats(char * buffer, size_t buffer_size) const;
 };
 
 extern I_Meter iMeter;

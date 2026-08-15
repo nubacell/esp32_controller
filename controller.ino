@@ -1071,6 +1071,19 @@ struct I_Meter
   uint16_t conversion_results[I_METER_CHANNELS_COUNT];
   uint8_t channel_;
 
+  struct Stats {
+    unsigned start_;
+    unsigned start_timeout_;
+    unsigned poll_;
+    unsigned poll_timeout_;
+    unsigned read_;
+    unsigned read_timeout_;
+  } stats_[I_METER_CHANNELS_COUNT];
+
+  bool start();
+  bool poll(bool & ready);
+  bool read(uint16_t & v);
+
   void on_state_init(uint32_t now_ms);
   void on_state_init_failed(uint32_t now_ms);
   void on_state_idle(uint32_t now_ms);
@@ -1089,6 +1102,8 @@ struct I_Meter
   void reportMeasurements(
       uint32_t now_ms,
       uint32_t test_start_time_ms) const;
+  void reportStats() const;
+  size_t reportStats(char * buffer, size_t buffer_size) const;
 };
 
 extern I_Meter iMeter;
@@ -2034,6 +2049,7 @@ static const commands_map_t commands_map[] = {
 
   COMMAND(i2c_adc_run),
   COMMAND(i2c_adc_report),
+  COMMAND(i2c_adc_stats),
 #undef COMMAND
 };
 
@@ -2642,6 +2658,12 @@ void i2c_adc_run(const char * args)
   iMeter.run();
 }
 
+void i2c_adc_stats(const char * args)
+{
+  (void) args;
+  iMeter.reportStats();
+}
+
 I_Meter iMeter;
 
 void I_Meter::on_loop(uint32_t now_ms)
@@ -2659,6 +2681,31 @@ void I_Meter::on_loop(uint32_t now_ms)
       LOG("ERROR: Unexpected state=%u/'%s'", state_, to_string(state_));
       break;
   }
+}
+
+// Config.OS == 0 -- ADC performs conversion
+bool I_Meter::poll(bool & ready)
+{
+  ::nc::i2c::adc_regs::Config c = {};
+  const auto r = ::nc::i2c::adc.read_repeat( *(uint16_t*) &c);
+  if (!r) {
+    ++stats_[channel_].poll_timeout_;
+  } else {
+    ready = c.OS;
+    ++stats_[channel_].poll_;
+  }
+  return r;
+}
+
+bool I_Meter::read(uint16_t & v)
+{
+  const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Conversion, v);
+  if (!r) {
+    ++stats_[channel_].read_timeout_;
+  } else {
+    ++stats_[channel_].read_;
+  }
+  return r;
 }
 
 #define I_Meter_Measurements_STRLEN ( \
@@ -2725,6 +2772,59 @@ void I_Meter::reportMeasurements(
 #endif
 }
 
+#define I_Meter_Stats_STRLEN ( \
+  CONSTSTRLEN("I_Meter/stats") \
+  + ( \
+    + CONSTSTRLEN("  0:") \
+    + CONSTSTRLEN(" start=1234567890/1234567890") \
+    + CONSTSTRLEN(" poll=1234567890/1234567890") \
+    + CONSTSTRLEN(" read=1234567890/1234567890") \
+  ) * I_METER_CHANNELS_COUNT \
+  + CONSTSTRLEN("\n") \
+)
+
+size_t I_Meter::reportStats(char * buffer, size_t buffer_size) const
+{
+  size_t used = safe_snprintf(buffer, buffer_size, "I_Meter/stats");
+  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT && buffer_size > used; ++i) {
+    const size_t left = buffer_size - used;
+    const auto & stats = stats_[i];
+    used += safe_snprintf(&buffer[used], left,
+        "  %u:"
+        " start=%u/%u"
+        " poll=%u/%u"
+        " read=%u/%u",
+        i,
+        stats.start_, stats.start_timeout_,
+        stats.poll_, stats.poll_timeout_,
+        stats.read_, stats.read_timeout_);
+  }
+  if (buffer_size > used) {
+    const size_t left = buffer_size - used;
+    used += safe_snprintf(&buffer[used], left, "\n");
+  }
+  return used;
+}
+
+void I_Meter::reportStats() const
+{
+  char buffer[I_Meter_Stats_STRLEN+1];
+  size_t buffer_size = sizeof(buffer);
+  const size_t used = reportStats(buffer, buffer_size);
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+}
+
+bool I_Meter::start()
+{
+  const auto r = ::nc::i2c::adc.start_single_conversion(channel_);
+  if (!r) {
+    ++stats_[channel_].start_timeout_;
+  } else {
+    ++stats_[channel_].start_;
+  }
+  return r;
+}
+
 void I_Meter::on_state_idle(uint32_t now_ms)
 {
   if (run_) {
@@ -2741,7 +2841,7 @@ void I_Meter::on_state_idle(uint32_t now_ms)
     //LOG("timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64, timeout_time_ms_, now_ms, esp_timer_get_time());
 
     state(
-      (::nc::i2c::adc.start_single_conversion(channel_))
+      (start())
         ? State::running
         : State::run_failed
     );
@@ -2774,17 +2874,13 @@ void I_Meter::on_state_run_failed(uint32_t now_ms)
 
 void I_Meter::on_state_running(uint32_t now_ms)
 {
-  ::nc::i2c::adc_regs::Config c = {};
-  if (!::nc::i2c::adc.read_repeat( *(uint16_t*) &c)) {
+  bool ready;
+  if (!poll(ready)) {
     state(State::run_failed);
     return;
   }
 
-  //LOG("sizeof(::nc::i2c::adc_regs::Config)=%zu", sizeof(::nc::i2c::adc_regs::Config));
-  //::nc::i2c::adc_regs::dump(c);
-
-  const auto converting = !c.OS; // 0 == ADC performs conversion
-  if (converting) {
+  if (!ready) {
     if (timeout_time_ms_ <= now_ms) {
       LOG("WARNING: %s %s (timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64 ")",
           "i2c ADC 'conversion'", "timeout", timeout_time_ms_, now_ms,
@@ -2795,7 +2891,7 @@ void I_Meter::on_state_running(uint32_t now_ms)
   }
 
   uint16_t v = 0;
-  const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Conversion, v);
+  const auto r = read(v);
   if (!r) {
     state(State::run_failed);
     return;
@@ -2810,7 +2906,7 @@ void I_Meter::on_state_running(uint32_t now_ms)
     timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
     //LOG("timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64, timeout_time_ms_, now_ms, esp_timer_get_time());
 
-    if (!::nc::i2c::adc.start_single_conversion(channel_)) {
+    if (!start()) {
       state(State::run_failed);
     }
     return;
