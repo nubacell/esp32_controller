@@ -774,6 +774,40 @@ struct EL_Device
 
 extern EL_Device elDevice;
 
+/*
+    There is little dirty trick.
+
+    Normally 'used <= size'. However 'used > size' is permitted and means
+    [logical] 'overflow' with excessive data lost.
+*/
+
+namespace nc {
+namespace mk {
+
+struct Buffer
+{
+  char * data_;
+  size_t size_;
+  size_t used_;
+
+  Buffer(char * data, size_t size) noexcept
+    : data_(data)
+    , size_(size)
+    , used_(0)
+  {
+  }
+
+  size_t used() const noexcept { return std::min(used_, size_); }
+  size_t need() const noexcept { return used_; }
+
+  __attribute__ ((format (printf, 1, 2)));
+  size_t printf(const char * format, ...) noexcept;
+  size_t vprintf(const char * format, va_list argsList) noexcept;
+};
+
+} // namespace mk
+} // namespace nc
+
 struct Controller
   : Runnable
 {
@@ -1793,6 +1827,38 @@ size_t safe_snprintf(char * buffer, size_t size, const char * format, ...)
   return r;
 }
 
+namespace nc {
+namespace mk {
+
+size_t Buffer::vprintf(const char * format, va_list argsList) noexcept
+{
+  char * data;
+  size_t free;
+  char buffer[1];
+  if (size_ > used_) {
+    data = &data_[used_];
+    free = size_ - used_;
+  } else {
+    data = buffer;
+    free = sizeof(buffer);
+  }
+  size_t used = safe_vsnprintf(data, free, format, argsList);
+  used_ += used;
+  return used;
+}
+
+size_t Buffer::printf(const char* format, ...) noexcept
+{
+  va_list argsList;
+  va_start(argsList, format);
+  size_t used = vprintf(format, argsList);
+  va_end(argsList);
+  return used;
+}
+
+} // namespace mk
+} // namespace nc
+
 const char CMD_IDENTIFY[] = "*IDN?";
 
 int32_t command_args_to_i32(const char * args, const char ** tail)
@@ -2729,42 +2795,30 @@ void I_Meter::reportMeasurements(
   char buffer[I_Meter_Measurements_STRLEN+1];
   size_t buffer_size = sizeof(buffer);
 
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
 #if 0
   const auto us1 = esp_timer_get_time(); // uint64_t
 #endif
 
-  size_t used = safe_snprintf(buffer, buffer_size, "/TEST/I2C");
+  b.printf("/TEST/I2C");
+  b.printf(" %9u", now_ms - test_start_time_ms);
+  b.printf(" %9u", start_time_ms_ - test_start_time_ms);
+  b.printf(" %9u", finish_time_ms_ - test_start_time_ms);
 
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, " %9u",
-        now_ms - test_start_time_ms);
-  }
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, " %9u",
-        start_time_ms_ - test_start_time_ms);
-  }
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, " %9u",
-        finish_time_ms_ - test_start_time_ms);
-  }
-
-  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT && buffer_size > used; ++i) {
-    const size_t left = buffer_size - used;
+  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
     const auto v = conversion_results[i];
     // 6.144 / 32768. = 0.1875
     const auto volts = double(v) * 6.144 / 32768.;
-    used += safe_snprintf(&buffer[used], left, " %5u %8u %6.4f", v, v * 1875, volts);
+    b.printf(" %5u %8u %6.4f", v, v * 1875, volts);
   }
 
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, " xx\n");
-  }
+  b.printf(" xx\n");
+//const auto used = b.used();
+  const auto need = b.need();
 
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+//SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 
 #if 0
   const auto us2 = esp_timer_get_time(); // uint64_t
