@@ -2776,9 +2776,9 @@ bool I_Meter::read(uint16_t & v)
 
 #define I_Meter_Measurements_STRLEN ( \
   CONSTSTRLEN("/TEST/I2C") \
-  + CONSTSTRLEN("  123456789") \
-  + CONSTSTRLEN("  123456789") \
-  + CONSTSTRLEN("  123456789") \
+  + CONSTSTRLEN(" 1234567890") \
+  + CONSTSTRLEN(" 1234567890") \
+  + CONSTSTRLEN(" 1234567890") \
   + ( \
     + CONSTSTRLEN(" 12345") \
     + CONSTSTRLEN(" 61440000") \
@@ -2802,9 +2802,9 @@ void I_Meter::reportMeasurements(
 #endif
 
   b.printf("/TEST/I2C");
-  b.printf(" %9u", now_ms - test_start_time_ms);
-  b.printf(" %9u", start_time_ms_ - test_start_time_ms);
-  b.printf(" %9u", finish_time_ms_ - test_start_time_ms);
+  b.printf(" %10u", now_ms - test_start_time_ms);
+  b.printf(" %10u", start_time_ms_ - test_start_time_ms);
+  b.printf(" %10u", finish_time_ms_ - test_start_time_ms);
 
   for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
     const auto v = conversion_results[i];
@@ -2814,6 +2814,7 @@ void I_Meter::reportMeasurements(
   }
 
   b.printf(" xx\n");
+
 //const auto used = b.used();
   const auto need = b.need();
 
@@ -3943,43 +3944,36 @@ void SensorDevices_Data_report_all()
 namespace rpi {
 
 static size_t analog_report_one(
-    char * buffer, size_t buffer_size,
+    ::nc::mk::Buffer & b,
     const SensorDeviceData_t & deviceData, unsigned i)
 {
   const auto analogSignal = deviceData.analogSignals.all[i];
-  return safe_snprintf(buffer, buffer_size, " %4u", analogSignal);
+  return b.printf(" %4u", analogSignal);
 }
 
 static size_t analog_report_all(
-    char * buffer, size_t buffer_size,
+    ::nc::mk::Buffer & b,
     const SensorDeviceData_t & deviceData)
 {
   size_t used = 0;
   for (unsigned i = 0; i < ANALOG_SIGNALS_COUNT; ++i) {
-    if (buffer_size > used) {
-      const size_t left = buffer_size - used;
-      used += ::rpi::analog_report_one(&buffer[used], left, deviceData, i);
-    }
+    used += ::rpi::analog_report_one(b, deviceData, i);
   }
   return used;
 }
 
 // byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
 static size_t SensorDevice_Data_report_one(
-    char * buffer, size_t buffer_size,
+    ::nc::mk::Buffer & b,
     unsigned i)
 {
   const auto & deviceData = *(SensorDeviceData_t*)(&spi_rx_buffers[i][0]);
-
 #if 1
-  size_t used = safe_snprintf(buffer, buffer_size, "  %6u", deviceData.vcc * 125);
+  size_t used = b.printf("  %6u", deviceData.vcc * 125);
 #else
-  size_t used = safe_snprintf(buffer, buffer_size, "  %4u", deviceData.vcc);
+  size_t used = b.printf("  %4u", deviceData.vcc);
 #endif
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += ::rpi::analog_report_all(&buffer[used], left, deviceData);
-  }
+  used += ::rpi::analog_report_all(b, deviceData);
   return used;
 }
 
@@ -3990,9 +3984,9 @@ static size_t SensorDevice_Data_report_one(
 */
 #define SensorDevices_Data_STRLEN ( \
   CONSTSTRLEN("/TEST/SPI") \
-  + CONSTSTRLEN("  123456789") \
-  + CONSTSTRLEN("  123456789") \
-  + CONSTSTRLEN("  123456789") \
+  + CONSTSTRLEN(" 1234567890") \
+  + CONSTSTRLEN(" 1234567890") \
+  + CONSTSTRLEN(" 1234567890") \
   + ( \
     CONSTSTRLEN("  123456") \
     + CONSTSTRLEN(" 1234") * ANALOG_SIGNALS_COUNT \
@@ -4007,47 +4001,32 @@ static void SensorDevices_Data_report_all(
   static char buffer[SensorDevices_Data_STRLEN+1];
   size_t buffer_size = sizeof(buffer);
 
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
 #if 0
   const auto us1 = esp_timer_get_time(); // uint64_t
   const auto availableForWrite1 = cn_uartConfig.availableForWrite();
 #endif
 
-  size_t used = safe_snprintf(buffer, buffer_size, "/TEST/SPI");
+  b.printf("/TEST/SPI");
 #if 0
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, "  %10" PRIu64, us1);
-  }
+  b.printf("  %10" PRIu64, us1);
 #endif
 
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, " %9u",
-        now_ms - test_start_time_ms);
-  }
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, " %9u",
-        spiDevice.transfer_start_time_ms_ - test_start_time_ms);
-  }
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, " %9u",
-        spiDevice.transfer_finish_time_ms_ - test_start_time_ms);
-  }
+  b.printf(" %10u", now_ms - test_start_time_ms);
+  b.printf(" %10u", spiDevice.transfer_start_time_ms_ - test_start_time_ms);
+  b.printf(" %10u", spiDevice.transfer_finish_time_ms_ - test_start_time_ms);
 
   for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
-    if (buffer_size > used) {
-      const size_t left = buffer_size - used;
-      used += ::rpi::SensorDevice_Data_report_one(&buffer[used], left, i);
-    }
+    ::rpi::SensorDevice_Data_report_one(b, i);
   }
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, "  XX\n");
-  }
+  b.printf("  XX\n");
 
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+//const auto used = b.used();
+  const auto need = b.need();
+
+//SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 
 #if 0
   const auto availableForWrite2 = cn_uartConfig.availableForWrite();

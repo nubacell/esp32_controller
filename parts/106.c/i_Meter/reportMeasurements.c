@@ -1,9 +1,9 @@
 
 #define I_Meter_Measurements_STRLEN ( \
   CONSTSTRLEN("/TEST/I2C") \
-  + CONSTSTRLEN("  123456789") \
-  + CONSTSTRLEN("  123456789") \
-  + CONSTSTRLEN("  123456789") \
+  + CONSTSTRLEN(" 1234567890") \
+  + CONSTSTRLEN(" 1234567890") \
+  + CONSTSTRLEN(" 1234567890") \
   + ( \
     + CONSTSTRLEN(" 12345") \
     + CONSTSTRLEN(" 61440000") \
@@ -27,9 +27,9 @@ void I_Meter::reportMeasurements(
 #endif
 
   b.printf("/TEST/I2C");
-  b.printf(" %9u", now_ms - test_start_time_ms);
-  b.printf(" %9u", start_time_ms_ - test_start_time_ms);
-  b.printf(" %9u", finish_time_ms_ - test_start_time_ms);
+  b.printf(" %10u", now_ms - test_start_time_ms);
+  b.printf(" %10u", start_time_ms_ - test_start_time_ms);
+  b.printf(" %10u", finish_time_ms_ - test_start_time_ms);
 
   for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
     const auto v = conversion_results[i];
@@ -39,6 +39,7 @@ void I_Meter::reportMeasurements(
   }
 
   b.printf(" xx\n");
+
 //const auto used = b.used();
   const auto need = b.need();
 
