@@ -7,7 +7,7 @@ const char * Test::to_string(State state)
     "sub_step_init",
     "sub_step_wait",
     "sub_step_measure",
-    "spi_wait",
+    "measure_wait",
     "sub_step_next",
     "step_next",
     "abort",

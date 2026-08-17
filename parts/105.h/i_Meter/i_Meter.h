@@ -59,6 +59,10 @@ struct I_Meter
   bool isMeasurementFinished() const { return State::idle == state_; }
   bool areMeasurementsValid() const { return measurementsValid_; }
   void reportMeasurements(
+    ::nc::mk::Buffer & b,
+    uint32_t now_ms,
+    uint32_t test_start_time_ms) const;
+  void reportMeasurements(
       uint32_t now_ms,
       uint32_t test_start_time_ms) const;
   void reportStats() const;

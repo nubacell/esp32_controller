@@ -43,14 +43,30 @@ static size_t SensorDevice_Data_report_one(
 #define SensorDevices_Data_STRLEN ( \
   CONSTSTRLEN("/TEST/SPI") \
   + CONSTSTRLEN(" 1234567890") \
+  \
   + CONSTSTRLEN(" 1234567890") \
   + CONSTSTRLEN(" 1234567890") \
   + ( \
     CONSTSTRLEN("  123456") \
     + CONSTSTRLEN(" 1234") * ANALOG_SIGNALS_COUNT \
   ) * SPI_SENSOR_DEVICES_COUNT \
-  + CONSTSTRLEN("  FF\n") \
+  \
+  + CONSTSTRLEN("  XX") \
+  + CONSTSTRLEN("\n") \
 )
+
+void SensorDevices_Data_report_all(
+    ::nc::mk::Buffer & b,
+    uint32_t now_ms,
+    uint32_t test_start_time_ms)
+{
+  b.printf(" %10u", spiDevice.transfer_start_time_ms_ - test_start_time_ms);
+  b.printf(" %10u", spiDevice.transfer_finish_time_ms_ - test_start_time_ms);
+
+  for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
+    ::rpi::SensorDevice_Data_report_one(b, i);
+  }
+}
 
 static void SensorDevices_Data_report_all(
     uint32_t now_ms,
@@ -70,20 +86,11 @@ static void SensorDevices_Data_report_all(
 #if 0
   b.printf("  %10" PRIu64, us1);
 #endif
-
   b.printf(" %10u", now_ms - test_start_time_ms);
-  b.printf(" %10u", spiDevice.transfer_start_time_ms_ - test_start_time_ms);
-  b.printf(" %10u", spiDevice.transfer_finish_time_ms_ - test_start_time_ms);
-
-  for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
-    ::rpi::SensorDevice_Data_report_one(b, i);
-  }
+  rpi::SensorDevices_Data_report_all(b, now_ms, test_start_time_ms);
   b.printf("  XX\n");
 
-//const auto used = b.used();
   const auto need = b.need();
-
-//SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
   SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 
 #if 0

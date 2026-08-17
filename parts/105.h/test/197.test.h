@@ -7,7 +7,7 @@ struct Test
   uint32_t test_start_time_ms_;
   uint32_t step_end_time_ms_;
   uint32_t sub_step_end_time_ms_;
-  uint32_t spi_timeout_time_ms_;
+  //uint32_t spi_timeout_time_ms_;
   //uint32_t i2c_timeout_time_ms_;
   uint32_t measure_timeout_time_ms_;
 
@@ -27,7 +27,8 @@ struct Test
          sub_step_wait,     // 3 wait for end of sub step (sub_step_end_time_ms_)
          sub_step_measure,
 //                spi_init, // start SPI transfer to get measurements
-                  spi_wait, // 4 wait for end of SPI transfer
+//                spi_wait, // 4 wait for end of SPI transfer
+                  measure_wait,
          sub_step_next,     // 5 '++sub_step_ < substeps_count_ ? sub_step_init : step_next'
     step_next,              // 6 '++step_ < steps_count_ ? step_init : cleanup'
     abort,                  // 7 report and cleanup (deactivate PS and EL)
@@ -54,7 +55,7 @@ struct Test
   void on_state_sub_step_init(uint32_t now_ms);
   void on_state_sub_step_wait(uint32_t now_ms);
   void on_state_sub_step_measure(uint32_t now_ms);
-  void on_state_spi_wait(uint32_t now_ms);
+  void on_state_measure_wait(uint32_t now_ms);
   void on_state_sub_step_next(uint32_t now_ms);
   void on_state_step_next(uint32_t now_ms);
   void on_state_abort(uint32_t now_ms);

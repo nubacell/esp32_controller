@@ -1134,6 +1134,10 @@ struct I_Meter
   bool isMeasurementFinished() const { return State::idle == state_; }
   bool areMeasurementsValid() const { return measurementsValid_; }
   void reportMeasurements(
+    ::nc::mk::Buffer & b,
+    uint32_t now_ms,
+    uint32_t test_start_time_ms) const;
+  void reportMeasurements(
       uint32_t now_ms,
       uint32_t test_start_time_ms) const;
   void reportStats() const;
@@ -1365,6 +1369,15 @@ void analog_report_all(const SensorDeviceData_t & deviceData);
 void SensorDevice_Data_report_one(unsigned i);
 void SensorDevices_Data_report_all();
 
+namespace rpi {
+
+void SensorDevices_Data_report_all(
+    ::nc::mk::Buffer & b,
+    uint32_t now_ms,
+    uint32_t test_start_time_ms);
+
+} // namespace rpi
+
 struct Test
   : Runnable
 {
@@ -1373,7 +1386,7 @@ struct Test
   uint32_t test_start_time_ms_;
   uint32_t step_end_time_ms_;
   uint32_t sub_step_end_time_ms_;
-  uint32_t spi_timeout_time_ms_;
+  //uint32_t spi_timeout_time_ms_;
   //uint32_t i2c_timeout_time_ms_;
   uint32_t measure_timeout_time_ms_;
 
@@ -1393,7 +1406,8 @@ struct Test
          sub_step_wait,     // 3 wait for end of sub step (sub_step_end_time_ms_)
          sub_step_measure,
 //                spi_init, // start SPI transfer to get measurements
-                  spi_wait, // 4 wait for end of SPI transfer
+//                spi_wait, // 4 wait for end of SPI transfer
+                  measure_wait,
          sub_step_next,     // 5 '++sub_step_ < substeps_count_ ? sub_step_init : step_next'
     step_next,              // 6 '++step_ < steps_count_ ? step_init : cleanup'
     abort,                  // 7 report and cleanup (deactivate PS and EL)
@@ -1420,7 +1434,7 @@ struct Test
   void on_state_sub_step_init(uint32_t now_ms);
   void on_state_sub_step_wait(uint32_t now_ms);
   void on_state_sub_step_measure(uint32_t now_ms);
-  void on_state_spi_wait(uint32_t now_ms);
+  void on_state_measure_wait(uint32_t now_ms);
   void on_state_sub_step_next(uint32_t now_ms);
   void on_state_step_next(uint32_t now_ms);
   void on_state_abort(uint32_t now_ms);
@@ -1438,6 +1452,10 @@ struct Test
 
   void dump() const;
 };
+
+void report_step_data(
+    uint32_t now_ms,
+    uint32_t test_start_time_ms);
 
 uint32_t cpu_sp_get()
 {
@@ -2777,6 +2795,7 @@ bool I_Meter::read(uint16_t & v)
 #define I_Meter_Measurements_STRLEN ( \
   CONSTSTRLEN("/TEST/I2C") \
   + CONSTSTRLEN(" 1234567890") \
+  \
   + CONSTSTRLEN(" 1234567890") \
   + CONSTSTRLEN(" 1234567890") \
   + ( \
@@ -2784,9 +2803,26 @@ bool I_Meter::read(uint16_t & v)
     + CONSTSTRLEN(" 61440000") \
     + CONSTSTRLEN(" 6.1440") \
   ) * I_METER_CHANNELS_COUNT \
-  + CONSTSTRLEN(" xx") \
+  \
+  + CONSTSTRLEN("  XX") \
   + CONSTSTRLEN("\n") \
 )
+
+void I_Meter::reportMeasurements(
+    ::nc::mk::Buffer & b,
+    uint32_t now_ms,
+    uint32_t test_start_time_ms) const
+{
+  b.printf(" %10u", start_time_ms_ - test_start_time_ms);
+  b.printf(" %10u", finish_time_ms_ - test_start_time_ms);
+
+  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
+    const auto v = conversion_results[i];
+    // 6.144 / 32768. = 0.1875
+    const auto volts = double(v) * 6.144 / 32768.;
+    b.printf(" %5u %8u %6.4f", v, v * 1875, volts);
+  }
+}
 
 void I_Meter::reportMeasurements(
     uint32_t now_ms,
@@ -2803,22 +2839,10 @@ void I_Meter::reportMeasurements(
 
   b.printf("/TEST/I2C");
   b.printf(" %10u", now_ms - test_start_time_ms);
-  b.printf(" %10u", start_time_ms_ - test_start_time_ms);
-  b.printf(" %10u", finish_time_ms_ - test_start_time_ms);
+  iMeter.reportMeasurements(b, now_ms, test_start_time_ms);
+  b.printf("  XX\n");
 
-  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
-    const auto v = conversion_results[i];
-    // 6.144 / 32768. = 0.1875
-    const auto volts = double(v) * 6.144 / 32768.;
-    b.printf(" %5u %8u %6.4f", v, v * 1875, volts);
-  }
-
-  b.printf(" xx\n");
-
-//const auto used = b.used();
   const auto need = b.need();
-
-//SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
   SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 
 #if 0
@@ -3985,14 +4009,30 @@ static size_t SensorDevice_Data_report_one(
 #define SensorDevices_Data_STRLEN ( \
   CONSTSTRLEN("/TEST/SPI") \
   + CONSTSTRLEN(" 1234567890") \
+  \
   + CONSTSTRLEN(" 1234567890") \
   + CONSTSTRLEN(" 1234567890") \
   + ( \
     CONSTSTRLEN("  123456") \
     + CONSTSTRLEN(" 1234") * ANALOG_SIGNALS_COUNT \
   ) * SPI_SENSOR_DEVICES_COUNT \
-  + CONSTSTRLEN("  FF\n") \
+  \
+  + CONSTSTRLEN("  XX") \
+  + CONSTSTRLEN("\n") \
 )
+
+void SensorDevices_Data_report_all(
+    ::nc::mk::Buffer & b,
+    uint32_t now_ms,
+    uint32_t test_start_time_ms)
+{
+  b.printf(" %10u", spiDevice.transfer_start_time_ms_ - test_start_time_ms);
+  b.printf(" %10u", spiDevice.transfer_finish_time_ms_ - test_start_time_ms);
+
+  for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
+    ::rpi::SensorDevice_Data_report_one(b, i);
+  }
+}
 
 static void SensorDevices_Data_report_all(
     uint32_t now_ms,
@@ -4012,20 +4052,11 @@ static void SensorDevices_Data_report_all(
 #if 0
   b.printf("  %10" PRIu64, us1);
 #endif
-
   b.printf(" %10u", now_ms - test_start_time_ms);
-  b.printf(" %10u", spiDevice.transfer_start_time_ms_ - test_start_time_ms);
-  b.printf(" %10u", spiDevice.transfer_finish_time_ms_ - test_start_time_ms);
-
-  for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
-    ::rpi::SensorDevice_Data_report_one(b, i);
-  }
+  rpi::SensorDevices_Data_report_all(b, now_ms, test_start_time_ms);
   b.printf("  XX\n");
 
-//const auto used = b.used();
   const auto need = b.need();
-
-//SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
   SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 
 #if 0
@@ -4067,19 +4098,21 @@ void test_abort(const char * args)
   test.abort();
 }
 
+#if 1
 void Test::dump() const
 {
   hex_dump( (const uint8_t*)this, sizeof(*this));
   LOG("step=%u sub_step=%u test_start_time_ms=%u sub_step_end_time_ms=%u"
-      " spi_timeout_time_ms=%u run=%i abort=%i state=%u/%s",
+      " measure_timeout_time_ms=%u run=%i abort=%i state=%u/%s",
       step_, sub_step_, test_start_time_ms_, sub_step_end_time_ms_,
-      spi_timeout_time_ms_, run_, abort_, state_, to_string(state_));
+      measure_timeout_time_ms_, run_, abort_, state_, to_string(state_));
 }
 
 void test_dump(const char * args)
 {
   test.dump();
 }
+#endif
 
 void Test::change_PS_EL_configs(const ProfileStep * profileStep)
 {
@@ -4154,7 +4187,7 @@ void Test::on_loop(uint32_t now_ms)
     CASE_CALL(sub_step_init)
     CASE_CALL(sub_step_wait)
     CASE_CALL(sub_step_measure)
-    CASE_CALL(spi_wait)
+    CASE_CALL(measure_wait)
     CASE_CALL(sub_step_next)
     CASE_CALL(step_next)
     CASE_CALL(abort)
@@ -4174,7 +4207,7 @@ const char * Test::to_string(State state)
     "sub_step_init",
     "sub_step_wait",
     "sub_step_measure",
-    "spi_wait",
+    "measure_wait",
     "sub_step_next",
     "step_next",
     "abort",
@@ -4196,6 +4229,56 @@ void test_state(const char * args)
   size_t used = safe_snprintf(buffer, buffer_size, "/TEST/STATE %s\n", Test::to_string(test.state_));
 
   SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+}
+
+#define TEST_STEP_DATA_STRLEN ( \
+  CONSTSTRLEN("/TEST/DATA") \
+  + CONSTSTRLEN(" 1234567890") \
+  \
+  + CONSTSTRLEN("  |") \
+  \
+  + CONSTSTRLEN(" 1234567890") \
+  + CONSTSTRLEN(" 1234567890") \
+  + ( \
+    + CONSTSTRLEN(" 12345") \
+    + CONSTSTRLEN(" 61440000") \
+    + CONSTSTRLEN(" 6.1440") \
+  ) * I_METER_CHANNELS_COUNT \
+  \
+  + CONSTSTRLEN("  |") \
+  \
+  + CONSTSTRLEN(" 1234567890") \
+  + CONSTSTRLEN(" 1234567890") \
+  + ( \
+    CONSTSTRLEN("  123456") \
+    + CONSTSTRLEN(" 1234") * ANALOG_SIGNALS_COUNT \
+  ) * SPI_SENSOR_DEVICES_COUNT \
+  \
+  + CONSTSTRLEN("  XX") \
+  + CONSTSTRLEN("\n") \
+)
+
+void report_step_data(
+    uint32_t now_ms,
+    uint32_t test_start_time_ms)
+{
+  char buffer[TEST_STEP_DATA_STRLEN+1];
+  size_t buffer_size = sizeof(buffer);
+
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/TEST/DATA");
+  b.printf(" %10u", now_ms - test_start_time_ms);
+
+  b.printf("  |");
+  iMeter.reportMeasurements(b, now_ms, test_start_time_ms);
+  b.printf("  |");
+  rpi::SensorDevices_Data_report_all(b, now_ms, test_start_time_ms);
+
+  b.printf("  XX\n");
+
+  const auto need = b.need();
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 }
 
 void Test::on_state_idle(uint32_t now_ms)
@@ -4325,29 +4408,24 @@ void Test::on_state_sub_step_measure(uint32_t now_ms)
 {
   // --- 'sub_step_measure' ---
 
-  // --- 'spi_init' ---
-/*
-  // FIXME: Use correct 'spi_timeout_ms'
-  constexpr uint32_t spi_timeout_ms = 50;
-  //constexpr uint32_t spi_timeout_ms = 5;
-  spi_timeout_time_ms_ = now_ms + spi_timeout_ms;
-*/
-
+  // --- 'measure_init' ---
+  // FIXME: Use correct 'measure_timeout_ms'
   constexpr uint32_t measure_timeout_ms = 10;
   measure_timeout_time_ms_ = now_ms + measure_timeout_ms;
 
 #if 0
-  LOG(". spi_timeout_time_ms_=%u", spi_timeout_time_ms_);
+  LOG(". measure_timeout_time_ms_=%u", measure_timeout_time_ms_);
 #endif
   spiDevice.run();
   iMeter.run();
-  state(State::spi_wait);
+
+  state(State::measure_wait);
 }
 
 // Long running state. Check for user's abort request.
 
-// 'spi_wait'
-void Test::on_state_spi_wait(uint32_t now_ms)
+// 'measure_wait'
+void Test::on_state_measure_wait(uint32_t now_ms)
 {
   if (abort_) {
     state(State::abort);
@@ -4355,7 +4433,7 @@ void Test::on_state_spi_wait(uint32_t now_ms)
   if (spiDevice.isTransferFinished() && iMeter.isMeasurementFinished()) {
     //LOG("'transferFinished'");
 
-    // --- 'spi transfer end' ---
+    // --- 'measure end' ---
 
     if (!spiDevice.areSensorsDataValid()) {
       LOG("ERROR: received sensors' data are invalid");
@@ -4364,39 +4442,19 @@ void Test::on_state_spi_wait(uint32_t now_ms)
       LOG("ERROR: 'current' measurements are invalid");
       state(State::abort);
     } else {
-#if 0
-      uint64_t us_old = 0;
-      uint32_t ms_old = 0;
-      for (unsigned i = 0; i < 100; ++i) {
-        const auto us = esp_timer_get_time(); // uint64_t
-        const auto ms = millis();
-        const auto availableForWrite = cn_uartConfig.availableForWrite();
-        LOG("%9" PRIu64 " %6u %3u %9" PRIu64 " %6u %4u", us, ms, i, us-us_old, ms-ms_old, availableForWrite);
-        us_old = us;
-        ms_old = ms;
-      }
-#endif
       // report sensors' data
-      //SensorDevices_Data_report_all();
-      rpi::SensorDevices_Data_report_all(now_ms, test_start_time_ms_);
       iMeter.reportMeasurements(now_ms, test_start_time_ms_);
+      rpi::SensorDevices_Data_report_all(now_ms, test_start_time_ms_);
+      report_step_data(now_ms, test_start_time_ms_);
 
       // start next sub step
       state(State::sub_step_next);
-
     }
   } else
-#if 1
   if (measure_timeout_time_ms_ <= now_ms) {
     LOG("ERROR: measurements timeout");
     state(State::abort);
   }
-#else
-  if (spi_timeout_time_ms_ <= now_ms) {
-    LOG("ERROR: sensors' data SPI transfer timeout");
-    state(State::abort);
-  }
-#endif
 }
 
 void Test::on_state_sub_step_next(uint32_t now_ms)
