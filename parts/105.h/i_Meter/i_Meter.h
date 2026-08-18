@@ -4,17 +4,16 @@
 struct I_Meter
   : Runnable
 {
-  uint64_t start_time_us_;
-  uint64_t finish_time_us_;
-
   uint32_t start_time_ms_;
-  uint32_t finish_time_ms_;
+  uint32_t end_time_ms_;
+
+  static constexpr uint32_t single_conversion_timeout_ms = 5;
   uint32_t timeout_time_ms_;
 
   bool run_ = false;
   bool measurementsValid_ = false;
 
-  enum class State {
+  enum class State : uint8_t {
     init,
     init_failed,
     idle,
@@ -24,8 +23,6 @@ struct I_Meter
   State state_ = State::init;
   static const char * to_string(State state);
   void state(State new_state);
-
-  static constexpr uint32_t single_conversion_timeout_ms = 5;
 
   uint16_t conversion_results[I_METER_CHANNELS_COUNT];
   uint8_t channel_;
@@ -56,8 +53,8 @@ struct I_Meter
     run_ = true;
   }
 
-  bool isMeasurementFinished() const { return State::idle == state_; }
-  bool areMeasurementsValid() const { return measurementsValid_; }
+  bool isMeasurementFinished() /*const*/ { return State::idle == state_; }
+  bool areMeasurementsValid() /*const*/ { return measurementsValid_; }
   void reportMeasurements(
     ::nc::mk::Buffer & b,
     uint32_t now_ms,

@@ -35,7 +35,6 @@ void I_Meter::on_state_running(uint32_t now_ms)
   ++channel_;
   if (channel_ < I_METER_CHANNELS_COUNT) {
 
-    //constexpr uint32_t single_conversion_timeout_ms = 2;
     timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
     //LOG("timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64, timeout_time_ms_, now_ms, esp_timer_get_time());
 
@@ -45,24 +44,13 @@ void I_Meter::on_state_running(uint32_t now_ms)
     return;
   }
 
-  finish_time_us_ = esp_timer_get_time();
-  finish_time_ms_ = now_ms;
+  end_time_ms_ = now_ms;
 
   measurementsValid_ = true;
 
 #if 0
-  LOG("us2=%" PRIu64 " - us1=%" PRIu64 " =%" PRIu64,
-      finish_time_us_, start_time_us_, finish_time_us_ - start_time_us_);
   LOG("ms2=%" PRIu32 " - ms1=%" PRIu32 " =%" PRIu32,
-      finish_time_ms_, start_time_ms_, finish_time_ms_ - start_time_ms_);
-
-  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
-    const auto v = conversion_results[i];
-    const auto volts = double(v) * 6.144 / 32768.;
-    LOG("channel=%u v=0x%04X/%u/%i volts=%f", i, v, v, int16_t(v), volts);
-  }
-
-  iMeter.reportMeasurements(0, 0);
+      end_time_ms_, start_time_ms_, end_time_ms_ - start_time_ms_);
 #endif
 
   state(State::idle);

@@ -2,14 +2,32 @@
 struct Test
   : Runnable
 {
-  unsigned step_;
-  unsigned sub_step_;
   uint32_t test_start_time_ms_;
-  uint32_t step_end_time_ms_;
-  uint32_t sub_step_end_time_ms_;
-  //uint32_t spi_timeout_time_ms_;
-  //uint32_t i2c_timeout_time_ms_;
-  uint32_t measure_timeout_time_ms_;
+
+  struct Step
+  {
+    unsigned count_;
+    uint32_t start_time_planned_ms_;
+    uint32_t start_time_actual_ms_;
+    uint32_t end_time_planned_ms_;
+  } step_;
+  static constexpr unsigned step_count_max_ = 100;
+
+  struct Sub
+  {
+    Step step_;
+  } sub_;
+  static constexpr unsigned sub_step_count_max_ = 10000;
+
+  struct Measure
+  {
+    uint32_t start_time_actual_ms_;
+    uint32_t end_time_actual_ms_;
+
+    // FIXME: Use correct 'Measure::timeout_ms'
+    static constexpr uint32_t timeout_ms = 10;
+    uint32_t timeout_time_ms_;
+  } measure_;
 
   int32_t I_A = 0;
   uint32_t PS_V_max = 0;
@@ -17,7 +35,7 @@ struct Test
   bool run_;
   bool abort_;
 
-  enum class State {
+  enum class State : uint8_t {
     idle,
 //  init,                   // start_time_ms_ = sub_step_end_time_ms_ = now_ms;
 //  step_0,                 // step_ = 0;
@@ -25,10 +43,10 @@ struct Test
 //       sub_step_0,        // sub_step_ = 0;
          sub_step_init,     // 2 'sub_step_end_time_ms_ += measure_period_ms_;'
          sub_step_wait,     // 3 wait for end of sub step (sub_step_end_time_ms_)
-         sub_step_measure,
-//                spi_init, // start SPI transfer to get measurements
-//                spi_wait, // 4 wait for end of SPI transfer
-                  measure_wait,
+           measure_init,
+//           spi_init,      //   start SPI transfer to get measurements
+//           i2c_adc_init,  //   start i2c ADC measurements
+           measure_wait,    //   wait for end of SPI transfer and i2c ADC measurements
          sub_step_next,     // 5 '++sub_step_ < substeps_count_ ? sub_step_init : step_next'
     step_next,              // 6 '++step_ < steps_count_ ? step_init : cleanup'
     abort,                  // 7 report and cleanup (deactivate PS and EL)
@@ -37,13 +55,7 @@ struct Test
   State state_ = State::idle;
   static const char * to_string(State state);
 
-  void state(State new_state)
-  {
-    const auto old_state_name = to_string(state_);
-    state_ = new_state;
-    const auto new_state_name = to_string(state_);
-    LOG("'%s' -> '%s'", old_state_name, new_state_name);
-  }
+  void state(State new_state);
 
   void change_PS_EL_configs(const ProfileStep * profileStep);
   void deactivate_PS_EL();
@@ -54,7 +66,7 @@ struct Test
   void on_state_step_init(uint32_t now_ms);
   void on_state_sub_step_init(uint32_t now_ms);
   void on_state_sub_step_wait(uint32_t now_ms);
-  void on_state_sub_step_measure(uint32_t now_ms);
+  void on_state_measure_init(uint32_t now_ms);
   void on_state_measure_wait(uint32_t now_ms);
   void on_state_sub_step_next(uint32_t now_ms);
   void on_state_step_next(uint32_t now_ms);
@@ -72,4 +84,11 @@ struct Test
   }
 
   void dump() const;
+
+  void report_step_data(
+      uint32_t now_ms,
+      uint32_t test_start_time_ms) const;
+
 };
+
+extern Test test;

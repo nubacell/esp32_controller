@@ -5,7 +5,7 @@ void serial_write_buffer(
 {
   if (used < buffer_size) {
     Serial.write(buffer, used);
-#if 1
+#if 0
     log(file, line, function,
         "buffer_size=%zu required=%zu", buffer_size, used + 1);
 #endif
