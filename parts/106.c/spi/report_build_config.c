@@ -13,5 +13,5 @@ void spi_report_config()
   LOG(". %s=%u", "SPI_BUFFER_SIZE", SPI_BUFFER_SIZE);
   LOG(". %s=%u", "SPI_DATA_SIZE", SPI_DATA_SIZE);
   LOG(". %s=%u", "SPI_RX_BITS_MIN", SPI_RX_BITS_MIN);
-  LOG(". %s=%u", "sizeof(spi_rx_buffers)", sizeof(spi_rx_buffers));
+  LOG(". %s=%u", "sizeof(::nc::spi::buffers::rx)", sizeof(::nc::spi::buffers::rx));
 }

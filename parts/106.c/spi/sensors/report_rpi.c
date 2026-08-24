@@ -20,12 +20,12 @@ static size_t analog_report_all(
   return used;
 }
 
-// byte spi_rx_buffers[SPI_SENSOR_DEVICES_COUNT][SPI_BUFFER_SIZE];
+// byte ::nc::spi::buffers::rx[SPI_SENSORS_COUNT][SPI_BUFFER_SIZE];
 static size_t SensorDevice_Data_report_one(
     ::nc::mk::Buffer & b,
     unsigned i)
 {
-  const auto & deviceData = *(SensorDeviceData_t*)(&spi_rx_buffers[i][0]);
+  const auto & deviceData = *(SensorDeviceData_t*)(&::nc::spi::buffers::rx[i][0]);
 #if 1
   size_t used = b.printf("  %6u", deviceData.vcc * 125);
 #else
@@ -49,7 +49,7 @@ static size_t SensorDevice_Data_report_one(
   + ( \
     CONSTSTRLEN("  123456") \
     + CONSTSTRLEN(" 1234") * ANALOG_SIGNALS_COUNT \
-  ) * SPI_SENSOR_DEVICES_COUNT \
+  ) * SPI_SENSORS_COUNT \
   \
   + CONSTSTRLEN("  XX") \
   + CONSTSTRLEN("\n") \
@@ -60,7 +60,7 @@ void SensorDevices_Data_report_all(
     uint32_t now_ms,
     uint32_t test_start_time_ms)
 {
-  for (unsigned i = 0; i < SPI_SENSOR_DEVICES_COUNT; ++i) {
+  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
     ::rpi::SensorDevice_Data_report_one(b, i);
   }
 }

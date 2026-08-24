@@ -10,13 +10,11 @@
   + CONSTSTRLEN("\n") \
 )
 
-size_t I_Meter::reportStats(char * buffer, size_t buffer_size) const
+void I_Meter::reportStats(::nc::mk::Buffer & b) const
 {
-  size_t used = safe_snprintf(buffer, buffer_size, "I_Meter/stats");
-  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT && buffer_size > used; ++i) {
-    const size_t left = buffer_size - used;
+  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
     const auto & stats = stats_[i];
-    used += safe_snprintf(&buffer[used], left,
+    b.printf(
         "  %u:"
         " start=%u/%u"
         " poll=%u/%u"
@@ -26,17 +24,16 @@ size_t I_Meter::reportStats(char * buffer, size_t buffer_size) const
         stats.poll_, stats.poll_timeout_,
         stats.read_, stats.read_timeout_);
   }
-  if (buffer_size > used) {
-    const size_t left = buffer_size - used;
-    used += safe_snprintf(&buffer[used], left, "\n");
-  }
-  return used;
 }
 
 void I_Meter::reportStats() const
 {
   char buffer[I_Meter_Stats_STRLEN+1];
   size_t buffer_size = sizeof(buffer);
-  const size_t used = reportStats(buffer, buffer_size);
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, used);
+  ::nc::mk::Buffer b(buffer, buffer_size);
+  b.printf("I_Meter/stats");
+  reportStats(b);
+  b.printf("\n");
+  const auto need = b.need();
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 }

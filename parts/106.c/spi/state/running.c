@@ -8,15 +8,20 @@
 void SPI_Device::on_state_running(uint32_t now_ms)
 {
   if (spi_transfer_finished_) {
-    if (++spi_sensor_n_ < SPI_SENSOR_DEVICES_COUNT) {
+    ++spi_sensor_n_;
+    spi_sensor_n_ = ::nc::spi::sensors::skip_offline(spi_sensor_n_);
+    //LOG("spi_sensor_n_=%u", spi_sensor_n_);
+    if (spi_sensor_n_ < SPI_SENSORS_COUNT) {
       if (!spi_transfer_start(spi_sensor_n_)) {
         //scope_sync_on(false);
         state(State::idle);
       }
     } else {
-      sensors_data_valid_ = spi_rx_bits_valid();
-      //LOG("sensors_data_valid_=%i", sensors_data_valid_);
-      // FIXME: check CRCs
+      ::nc::spi::sensors::validate();
+      //::nc::spi::sensors::crc_valid_dump();
+      //::nc::spi::sensors::valid_dump();
+      //::nc::spi::sensors::stats_dump();
+
       transfer_end_time_ms_ = now_ms;
       //scope_sync_on(false);
       state(State::idle);

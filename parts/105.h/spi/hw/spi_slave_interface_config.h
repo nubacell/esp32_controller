@@ -1,0 +1,2 @@
+
+extern const spi_slave_interface_config_t spi_slave_interface_config;

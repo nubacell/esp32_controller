@@ -20,7 +20,7 @@ void Test::on_state_measure_wait(uint32_t now_ms)
       LOG("ERROR: 'current' measurements are invalid");
       state(State::abort);
     } else {
-      // report easurements
+      // report measurements
 #if 0
       iMeter.reportMeasurements(now_ms, test_start_time_ms_);
       rpi::SensorDevices_Data_report_all(now_ms, test_start_time_ms_);

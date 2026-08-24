@@ -1,0 +1,2 @@
+
+#define SPI_RX_BITS_MIN (SPI_DATA_SIZE * 8)

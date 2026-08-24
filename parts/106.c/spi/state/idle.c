@@ -13,17 +13,23 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
 
     spi_rx_bits_reset();
     spi_sensor_n_ = 0;
-    sensors_data_valid_ = false;
 
-    memset(spi_rx_buffers, 'R', sizeof(spi_rx_buffers));
-    //memset(spi_tx_buffers, 'T', sizeof(spi_tx_buffers));
-    //memset(spi_tx_buffers, 0x00, sizeof(spi_tx_buffers));
-    //memset(spi_tx_buffers, 0x0F, sizeof(spi_tx_buffers));
-    //memset(spi_tx_buffers, 0xFF, sizeof(spi_tx_buffers));
-    //memset(spi_tx_buffers, 0xC3, sizeof(spi_tx_buffers));
-    //memset(spi_tx_buffers, 0xF0, sizeof(spi_tx_buffers));
-    //memset(spi_tx_buffers, 0x81, sizeof(spi_tx_buffers));
-    memset(spi_tx_buffers, 0x99, sizeof(spi_tx_buffers));
+    spi_sensor_n_ = ::nc::spi::sensors::skip_offline(spi_sensor_n_);
+    //LOG("spi_sensor_n_=%u", spi_sensor_n_);
+    if (spi_sensor_n_ >= SPI_SENSORS_COUNT) {
+      state(State::idle);
+      return;
+    }
+
+    memset(::nc::spi::buffers::rx, 'R', sizeof(::nc::spi::buffers::rx));
+    //memset(::nc::spi::buffers::tx, 'T', sizeof(::nc::spi::buffers::tx));
+    //memset(::nc::spi::buffers::tx, 0x00, sizeof(::nc::spi::buffers::tx));
+    //memset(::nc::spi::buffers::tx, 0x0F, sizeof(::nc::spi::buffers::tx));
+    //memset(::nc::spi::buffers::tx, 0xFF, sizeof(::nc::spi::buffers::tx));
+    //memset(::nc::spi::buffers::tx, 0xC3, sizeof(::nc::spi::buffers::tx));
+    //memset(::nc::spi::buffers::tx, 0xF0, sizeof(::nc::spi::buffers::tx));
+    //memset(::nc::spi::buffers::tx, 0x81, sizeof(::nc::spi::buffers::tx));
+    memset(::nc::spi::buffers::tx, 0x99, sizeof(::nc::spi::buffers::tx));
 
     if (spi_transfer_start(spi_sensor_n_)) {
       state(State::running);

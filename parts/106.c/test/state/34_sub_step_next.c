@@ -7,7 +7,7 @@ void Test::on_state_sub_step_next(uint32_t now_ms)
   ++sub_.step_.count_;
   //LOG(". sub_.step_.count_=%u", sub_.step_.count_);
 #if 1
-  if (sub_.step_.count_ >= sub_step_count_max_) {
+  if (sub_.step_.count_ > sub_step_count_max_) {
     LOG("ERROR: sub_.step_.count_=%u limit=%u exceeded",
         sub_.step_.count_, sub_step_count_max_);
   }

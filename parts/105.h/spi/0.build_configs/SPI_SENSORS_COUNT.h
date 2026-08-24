@@ -1,0 +1,2 @@
+
+#define SPI_SENSORS_COUNT 8

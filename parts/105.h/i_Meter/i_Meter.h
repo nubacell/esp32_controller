@@ -63,7 +63,7 @@ struct I_Meter
       uint32_t now_ms,
       uint32_t test_start_time_ms) const;
   void reportStats() const;
-  size_t reportStats(char * buffer, size_t buffer_size) const;
+  void reportStats(::nc::mk::Buffer & b) const;
 };
 
 extern I_Meter iMeter;

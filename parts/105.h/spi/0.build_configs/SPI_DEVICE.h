@@ -1,0 +1,2 @@
+
+#define SPI_DEVICE SPI2_HOST

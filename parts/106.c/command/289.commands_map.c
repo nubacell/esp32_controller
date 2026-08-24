@@ -40,6 +40,7 @@ static const commands_map_t commands_map[] = {
 
   COMMAND(spi_run),
   COMMAND(spi_stats),
+  COMMAND(spi_config),
 
   COMMAND(ps_id),
   COMMAND(ps_v),
@@ -68,6 +69,8 @@ static const commands_map_t commands_map[] = {
   COMMAND(i2c_adc_run),
   COMMAND(i2c_adc_report),
   COMMAND(i2c_adc_stats),
+
+  COMMAND(stats),
 #undef COMMAND
 };
 
