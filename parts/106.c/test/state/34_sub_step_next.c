@@ -10,6 +10,7 @@ void Test::on_state_sub_step_next(uint32_t now_ms)
   if (sub_.step_.count_ > sub_step_count_max_) {
     LOG("ERROR: sub_.step_.count_=%u limit=%u exceeded",
         sub_.step_.count_, sub_step_count_max_);
+    state(State::abort);
   }
 #endif
   if (now_ms < step_.end_time_planned_ms_) {

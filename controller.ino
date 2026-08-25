@@ -4509,7 +4509,7 @@ void Test::on_loop(uint32_t now_ms)
   + CONSTSTRLEN(" 1234567890") \
   + CONSTSTRLEN(" 1234567890") \
   \
-  + CONSTSTRLEN(" 9999") \
+  + CONSTSTRLEN(" 99999") \
   + CONSTSTRLEN(" 1234567890") \
   + CONSTSTRLEN(" 1234567890") \
   + CONSTSTRLEN(" 1234567890") \
@@ -4552,7 +4552,7 @@ void Test::report_step_data(
 
   // SP SA EP
 //b.printf(" sub_step:");
-  b.printf(" %4u", sub_.step_.count_);
+  b.printf(" %5u", sub_.step_.count_);
   b.printf(" %10u", sub_.step_.start_time_planned_ms_ - test_start_time_ms);
   b.printf(" %10u", sub_.step_.start_time_actual_ms_ - test_start_time_ms);
   b.printf(" %10u", sub_.step_.end_time_planned_ms_ - test_start_time_ms);
@@ -4749,6 +4749,7 @@ void Test::on_state_sub_step_next(uint32_t now_ms)
   if (sub_.step_.count_ > sub_step_count_max_) {
     LOG("ERROR: sub_.step_.count_=%u limit=%u exceeded",
         sub_.step_.count_, sub_step_count_max_);
+    state(State::abort);
   }
 #endif
   if (now_ms < step_.end_time_planned_ms_) {
