@@ -19,7 +19,7 @@ void I_Meter::reportMeasurements(
 {
   for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
     const auto v = conversion_results[i];
-    // 6.144 / 32768. = 0.1875
+    // 6.144 / 32768. = 0.0001875
     // const auto volts = double(v) * 6.144 / 32768.;
     b.printf(" %8u", v * 1875);
   }

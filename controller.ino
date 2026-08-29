@@ -38,7 +38,8 @@ esp_err_t gpio_output_enable(gpio_num_t gpio_num);
 
 #define CN_UART_NUM             0
 //#define CN_UART_BAUD            115200
-#define CN_UART_BAUD            3000000
+//#define CN_UART_BAUD            3000000
+#define CN_UART_BAUD            2000000
 
 #define PS_UART_NUM             1
 #define PS_UART_BAUD            9600
@@ -1154,6 +1155,130 @@ struct I_Meter
 };
 
 extern I_Meter iMeter;
+
+void stats_disable(const char * args);
+
+void stats_enable(const char * args);
+
+namespace nc {
+namespace loop {
+
+using time_t = uint32_t;
+
+time_t now() { return ::millis(); }
+
+struct Stats
+  : Runnable
+{
+  uint32_t loop_count_ = 0;
+
+  static constexpr uint32_t report_stats_period_ms = 5000;
+  uint32_t report_stats_time_ms = 0;
+
+  static constexpr uint32_t report_config_period_ms = 5*60*1000;
+  uint32_t report_config_time_ms = 0;
+
+  bool disabled_ = false;
+  void disable() { disabled_ = true; }
+  void enable() { disabled_ = false; }
+
+  void on_loop(uint32_t now_ms) override;
+
+  void report(uint32_t now_ms) const;
+};
+
+extern Stats stats_;
+  
+} // namespace loop
+} // namespace nc
+
+void monitor_I(const char * args);
+
+void monitor_period(const char * args);
+
+void monitor_raw(const char * args);
+
+void monitor_start(const char * args);
+
+void monitor_stop(const char * args);
+
+void monitor_T(const char * args);
+
+void monitor_V(const char * args);
+
+//#define nc_Monitor_state_verbose
+
+namespace nc {
+
+struct Monitor
+  : Runnable
+{
+  bool active_ = false;
+  bool start_ = false;
+  bool stop_ = false;
+
+  struct Measure
+  {
+    static constexpr uint32_t timeout_ms = 10;
+    uint32_t timeout_time_ms_;
+  } measure_;
+
+  // FIXME: 'pause' -> 'Measure::Period'
+  struct Pause
+  {
+    uint32_t period_ms_ = 5000;
+    uint32_t end_time_ms_;
+  } pause_;
+
+  enum class State : uint8_t {
+    idle,
+    start,
+    stop,
+    measure_init,
+    measure_wait,
+    measure_done,
+    measure_report,
+    measure_timeout,
+    pause_init,
+    pause_wait,
+    pause_done,
+  };
+  State state_ = State::idle;
+  static const char * to_string(State state);
+  void state(State new_state);
+
+  void on_state_idle(uint32_t now_ms);
+  void on_state_start(uint32_t now_ms);
+  void on_state_stop(uint32_t now_ms);
+  void on_state_measure_init(uint32_t now_ms);
+  void on_state_measure_wait(uint32_t now_ms);
+  void on_state_measure_done(uint32_t now_ms);
+  void on_state_measure_report(uint32_t now_ms);
+  void on_state_measure_timeout(uint32_t now_ms);
+  void on_state_pause_init(uint32_t now_ms);
+  void on_state_pause_wait(uint32_t now_ms);
+  void on_state_pause_done(uint32_t now_ms);
+
+  void on_loop(uint32_t now_ms) override;
+
+  void start() { start_ = true; }
+  void stop() { stop_ = true; }
+
+  struct
+  {
+    bool raw_ = false;
+    bool I_ = false;
+    bool V_ = false;
+    bool T_ = false;
+  } disable_;
+
+  void report() const;
+  void report_VT(unsigned spi_sensor_n) const;
+};
+
+extern Monitor monitor_;
+
+} // namespace nc
 
 void pin_dump(const char * args);
 void pin_reset(const char * args);
@@ -2297,6 +2422,16 @@ static const commands_map_t commands_map[] = {
   COMMAND(i2c_adc_stats),
 
   COMMAND(stats),
+  COMMAND(stats_disable),
+  COMMAND(stats_enable),
+
+  COMMAND(monitor_start),
+  COMMAND(monitor_stop),
+  COMMAND(monitor_period),
+  COMMAND(monitor_raw),
+  COMMAND(monitor_I),
+  COMMAND(monitor_V),
+  COMMAND(monitor_T),
 #undef COMMAND
 };
 
@@ -2915,7 +3050,7 @@ void I_Meter::reportMeasurements(
 {
   for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
     const auto v = conversion_results[i];
-    // 6.144 / 32768. = 0.1875
+    // 6.144 / 32768. = 0.0001875
     // const auto volts = double(v) * 6.144 / 32768.;
     b.printf(" %8u", v * 1875);
   }
@@ -3107,6 +3242,463 @@ void I_Meter::state(State new_state)
   const auto new_state_name = to_string(state_);
   //LOG("'%s' -> '%s'", old_state_name, new_state_name);
 }
+
+void stats_disable(const char * args)
+{
+  (void) args;
+  ::nc::loop::stats_.disable();
+}
+
+void stats_enable(const char * args)
+{
+  (void) args;
+  ::nc::loop::stats_.enable();
+}
+
+namespace nc {
+namespace loop {
+
+void Stats::on_loop(uint32_t now_ms)
+{
+  ++loop_count_;
+
+  if (disabled_) { return; }
+
+  if ((report_stats_time_ms + report_stats_period_ms) <= now_ms) {
+    report_stats_time_ms = now_ms;
+    report(now_ms);
+  }
+
+  if ((report_config_time_ms + report_config_period_ms) <= now_ms) {
+    report_config_time_ms = now_ms;
+    report_config();
+  }
+}
+
+} // namespace loop
+} // namespace nc
+
+namespace nc {
+namespace loop {
+
+void Stats::report(uint32_t now_ms) const
+{
+  Serial.print(device_tag);
+  Serial.print(" now_ms="); Serial.print(now_ms);
+  Serial.print(" loop_count="); Serial.println(loop_count_);
+}
+
+} // namespace loop
+} // namespace nc
+
+namespace nc {
+namespace loop {
+
+Stats stats_;
+  
+} // namespace loop
+} // namespace nc
+
+using namespace nc;
+
+void monitor_I(const char * args)
+{
+  monitor_.disable_.I_ = !monitor_.disable_.I_;
+  LOG("disable_={raw_=%i I_=%i V_=%i T_=%i}",
+      monitor_.disable_.raw_,
+      monitor_.disable_.I_,
+      monitor_.disable_.V_,
+      monitor_.disable_.T_);
+}
+
+using namespace nc;
+
+void monitor_period(const char * args)
+{
+  monitor_.pause_.period_ms_ = command_args_to_u32(args, nullptr);
+  LOG("monitor_.pause_.period_ms_=%u", monitor_.pause_.period_ms_);
+}
+
+using namespace nc;
+
+void monitor_raw(const char * args)
+{
+  monitor_.disable_.raw_ = !monitor_.disable_.raw_;
+  LOG("disable_={raw_=%i I_=%i V_=%i T_=%i}",
+      monitor_.disable_.raw_,
+      monitor_.disable_.I_,
+      monitor_.disable_.V_,
+      monitor_.disable_.T_);
+}
+
+using namespace nc;
+
+void monitor_start(const char * args)
+{
+  monitor_.start();
+}
+
+using namespace nc;
+
+void monitor_stop(const char * args)
+{
+  monitor_.stop();
+}
+
+using namespace nc;
+
+void monitor_T(const char * args)
+{
+  monitor_.disable_.T_ = !monitor_.disable_.T_;
+  LOG("disable_={raw_=%i I_=%i V_=%i T_=%i}",
+      monitor_.disable_.raw_,
+      monitor_.disable_.I_,
+      monitor_.disable_.V_,
+      monitor_.disable_.T_);
+}
+
+using namespace nc;
+
+void monitor_V(const char * args)
+{
+  monitor_.disable_.V_ = !monitor_.disable_.V_;
+  LOG("disable_={raw_=%i I_=%i V_=%i T_=%i}",
+      monitor_.disable_.raw_,
+      monitor_.disable_.I_,
+      monitor_.disable_.V_,
+      monitor_.disable_.T_);
+}
+
+namespace nc {
+
+Monitor monitor_;
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_loop(uint32_t now_ms)
+{
+  switch (state_) {
+#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
+    CASE_CALL(idle)
+    CASE_CALL(start)
+    CASE_CALL(stop)
+    CASE_CALL(measure_init)
+    CASE_CALL(measure_wait)
+    CASE_CALL(measure_done)
+    CASE_CALL(measure_report)
+    CASE_CALL(measure_timeout)
+    CASE_CALL(pause_init)
+    CASE_CALL(pause_wait)
+    CASE_CALL(pause_done)
+#undef CASE_CALL
+    default:
+      LOG("Unexpected state=%u/'%s'", state_, to_string(state_));
+      break;
+  }
+}
+
+} // namespace nc
+
+namespace nc {
+
+static float V_to_I(float V)
+{
+  return V;
+}
+
+static float scale_I(uint16_t v)
+{
+  return V_to_I(float(v) * 0.0001875);
+}
+
+static float scale_V(uint16_t v)
+{
+  return float(v) / 1000.;
+}
+
+static float V_to_T(float V)
+{
+  return (V - 0.4) / 0.019;
+}
+
+static float scale_T(uint16_t v)
+{
+  return V_to_T(float(v) / 1000.);
+}
+
+static void report_I_raw()
+{
+  Serial.print(" I0raw:");
+  Serial.print(iMeter.conversion_results[0]);
+
+  Serial.print(" I1raw:");
+  Serial.print(iMeter.conversion_results[1]);
+}
+
+static void report_I()
+{
+  Serial.print(" I0:");
+  Serial.print(scale_I(iMeter.conversion_results[0]),7);
+
+  Serial.print(" I1:");
+  Serial.print(scale_I(iMeter.conversion_results[1]),7);
+}
+
+static void report_V(
+    unsigned spi_sensor_n,
+    unsigned index)
+{
+  const auto & deviceData = *::nc::spi::sensors::deviceData(spi_sensor_n);
+  const auto & analogSignals = deviceData.analogSignals;
+  const auto & voltage = analogSignals.voltage;
+  Serial.print(" V");
+  Serial.print(spi_sensor_n + 1);
+  Serial.print(index);
+  Serial.print(":");
+  Serial.print(scale_V(voltage[index]),3);
+}
+
+static void report_T(
+    unsigned spi_sensor_n,
+    unsigned group,
+    unsigned index)
+{
+  const auto & deviceData = *::nc::spi::sensors::deviceData(spi_sensor_n);
+  const auto & analogSignals = deviceData.analogSignals;
+  const auto & temperature = analogSignals.temperature;
+  Serial.print(" T");
+  Serial.print(spi_sensor_n + 1);
+  Serial.print(index);
+  Serial.print(group);
+  Serial.print(":");
+  Serial.print(scale_T(temperature[group][index]));
+}
+
+void Monitor::report_VT(unsigned spi_sensor_n) const
+{
+  if (!disable_.V_) {
+    for (unsigned i = 0; i < voltage_pins_count; ++i) {
+      report_V(spi_sensor_n, i);
+    }
+  }
+
+  if (!disable_.T_) {
+    for (unsigned i = 0; i < temperature_pins_count; ++i) {
+      report_T(spi_sensor_n, 0, i);
+      report_T(spi_sensor_n, 1, i);
+    }
+  }
+}
+
+void Monitor::report() const
+{
+  if (!disable_.I_) {
+    if (!disable_.raw_) {
+      report_I_raw();
+    }
+    report_I();
+  }
+
+  unsigned spi_sensor_n = 0;
+  for (;;) {
+    spi_sensor_n = ::nc::spi::sensors::skip_offline(spi_sensor_n);
+    if (spi_sensor_n >= SPI_SENSORS_COUNT) { break; }
+    report_VT(spi_sensor_n);
+    ++spi_sensor_n;
+  }
+
+  Serial.println("");
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_idle(uint32_t now_ms)
+{
+  (void) now_ms;
+
+  if (start_) {
+    state(State::start);
+  }
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_start(uint32_t now_ms)
+{
+  (void) now_ms;
+
+  start_ = false;
+
+  active_ = true;
+
+  pause_.end_time_ms_ = now_ms;
+
+  state(State::measure_init);
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_stop(uint32_t now_ms)
+{
+  (void) now_ms;
+
+  stop_ = false;
+  active_ = false;
+  state(State::idle);
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_measure_init(uint32_t now_ms)
+{
+  measure_.timeout_time_ms_ = now_ms + measure_.timeout_ms;
+
+  spiDevice.run();
+  iMeter.run();
+
+  state(State::measure_wait);
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_measure_wait(uint32_t now_ms)
+{
+  if (stop_) {
+    state(State::stop);
+  } else
+  if (spiDevice.isTransferFinished()
+  && iMeter.isMeasurementFinished()) {
+    state(State::measure_done);
+  } else
+  if (measure_.timeout_time_ms_ <= now_ms) {
+    LOG("ERROR: measurements timeout");
+    state(State::measure_timeout);
+  }
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_measure_done(uint32_t now_ms)
+{
+  (void) now_ms;
+
+  state(State::measure_report);
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_measure_report(uint32_t now_ms)
+{
+  (void) now_ms;
+
+  report();
+
+  state(State::pause_init);
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_measure_timeout(uint32_t now_ms)
+{
+  (void) now_ms;
+
+  state(State::stop);
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_pause_init(uint32_t now_ms)
+{
+  pause_.end_time_ms_ += pause_.period_ms_;
+
+  state(State::pause_wait);
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_pause_wait(uint32_t now_ms)
+{
+  if (stop_) {
+    state(State::stop);
+  } else
+  if (pause_.end_time_ms_ <= now_ms) {
+    state(State::pause_done);
+  }
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::on_state_pause_done(uint32_t now_ms)
+{
+  (void) now_ms;
+
+  state(State::measure_init);
+}
+
+} // namespace nc
+
+namespace nc {
+
+const char * Monitor::to_string(State state)
+{
+  static const char * const state_names[] = {
+    "idle",
+    "start",
+    "stop",
+    "measure_init",
+    "measure_wait",
+    "measure_done",
+    "measure_report",
+    "measure_timeout",
+    "pause_init",
+    "pause_wait",
+    "pause_done",
+  };
+  const auto i = unsigned(state);
+  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
+}
+
+} // namespace nc
+
+namespace nc {
+
+void Monitor::state(State new_state)
+{
+#if defined nc_Monitor_state_verbose
+  const auto old_state_name = to_string(state_);
+#endif
+  state_ = new_state;
+#if defined nc_Monitor_state_verbose
+  const auto new_state_name = to_string(state_);
+  LOG("'%s' -> '%s'", old_state_name, new_state_name);
+#endif
+}
+
+} // namespace nc
 
 void pin_dump(const char * args)
 {
@@ -4819,7 +5411,7 @@ void Test::state(State new_state)
   state_ = new_state;
   const auto new_state_name = to_string(state_);
   //LOG("'%s' -> '%s'", old_state_name, new_state_name);
-} 
+}
 
 Test test;
 
@@ -5426,41 +6018,15 @@ static void uartDevices_on_loop(int32_t now_ms) {
 
 void loop()
 {
-  //LOG("sp=%p", cpu_sp_get());
-
-  static uint32_t loop_count = 0;
-
   uint32_t now_ms = millis();
-  const auto now_s = now_ms / 1000;
 
-#if 1
-  // FIXME: Refactor using 'Runnable'
-  static uint32_t report_config_s = 0;
-  static constexpr uint32_t report_config_period_s = 5*60;
-  if (now_s - report_config_s >= report_config_period_s) {
-    report_config_s = now_s;
-    report_config();
-  }
-#endif
-
-  // FIXME: Refactor using 'Runnable'
-  static uint32_t report_stats_s = 0;
-  static constexpr uint32_t report_stats_period_s = 5;
-  if (now_s - report_stats_s >= report_stats_period_s) {
-    report_stats_s = now_s;
-    // FIXME: Move to 'report_stats()'
-    Serial.print(device_tag);
-    Serial.print(" now_ms="); Serial.print(now_ms);
-    Serial.print(" loop_count="); Serial.println(loop_count);
-    //report_stats();
-  }
+  ::nc::loop::stats_.on_loop(now_ms);
 
   uartDevices_on_loop(now_ms);
   iMeter.on_loop(now_ms);
   spiDevice.on_loop(now_ms);
   test.on_loop(now_ms);
-
-  ++loop_count;
+  ::nc::monitor_.on_loop(now_ms);
 }
 
 void setup()

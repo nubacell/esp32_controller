@@ -71,6 +71,16 @@ static const commands_map_t commands_map[] = {
   COMMAND(i2c_adc_stats),
 
   COMMAND(stats),
+  COMMAND(stats_disable),
+  COMMAND(stats_enable),
+
+  COMMAND(monitor_start),
+  COMMAND(monitor_stop),
+  COMMAND(monitor_period),
+  COMMAND(monitor_raw),
+  COMMAND(monitor_I),
+  COMMAND(monitor_V),
+  COMMAND(monitor_T),
 #undef COMMAND
 };
 
