@@ -92,3 +92,9 @@ void PS_Device::off()
 
   if (cmd_verify_) { output(); }
 }
+
+void PS_Device::clear_alerts() const
+{
+  const char * cmd = "TRIPRST";
+  write_cmd(cmd);
+}

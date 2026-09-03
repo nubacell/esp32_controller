@@ -193,6 +193,7 @@ void el_cc_range(const char * args);
 void el_cv_range(const char * args);
 
 void ps_id(const char * args);
+void ps_clear_alerts(const char * args);
 void ps_v(const char * args);
 void ps_c(const char * args);
 void ps_ovp(const char * args);
@@ -706,6 +707,8 @@ struct PS_Device
       const char * const expected_id_)
     : XX_Device(uartConfig_, expected_id_)
   {}
+
+  void clear_alerts() const;
 
   void ovp() const;
   void ocp() const;
@@ -2394,6 +2397,7 @@ static const commands_map_t commands_map[] = {
   COMMAND(spi_config),
 
   COMMAND(ps_id),
+  COMMAND(ps_clear_alerts),
   COMMAND(ps_v),
   COMMAND(ps_c),
   COMMAND(ps_ovp),
@@ -5794,6 +5798,12 @@ void PS_Device::off()
   if (cmd_verify_) { output(); }
 }
 
+void PS_Device::clear_alerts() const
+{
+  const char * cmd = "TRIPRST";
+  write_cmd(cmd);
+}
+
 static CN_Device cnDevice = {
   /*.uartConfig =*/ &cn_uartConfig,
 };
@@ -5812,6 +5822,12 @@ void ps_id(const char * args)
 {
   (void) args;
   psDevice.id();
+}
+
+void ps_clear_alerts(const char * args)
+{
+  (void) args;
+  psDevice.clear_alerts();
 }
 
 void ps_v(const char * args)

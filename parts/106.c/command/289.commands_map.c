@@ -43,6 +43,7 @@ static const commands_map_t commands_map[] = {
   COMMAND(spi_config),
 
   COMMAND(ps_id),
+  COMMAND(ps_clear_alerts),
   COMMAND(ps_v),
   COMMAND(ps_c),
   COMMAND(ps_ovp),

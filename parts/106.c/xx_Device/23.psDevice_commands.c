@@ -5,6 +5,12 @@ void ps_id(const char * args)
   psDevice.id();
 }
 
+void ps_clear_alerts(const char * args)
+{
+  (void) args;
+  psDevice.clear_alerts();
+}
+
 void ps_v(const char * args)
 {
   args = skip_whitespace(args);

@@ -8,6 +8,8 @@ struct PS_Device
     : XX_Device(uartConfig_, expected_id_)
   {}
 
+  void clear_alerts() const;
+
   void ovp() const;
   void ocp() const;
   void output() const;
