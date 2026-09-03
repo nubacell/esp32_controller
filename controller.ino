@@ -432,7 +432,7 @@ struct CN_Device
     command_fn_t command_fn = command_s_to_fn(s, len);
 
     if (!command_fn) {
-      printf("There is no command '%*s'\n", (int)len, s);
+      cnLOG("There is no command '%*s'", (int)len, s);
       print_commands();
     } else {
       command_fn(args);
