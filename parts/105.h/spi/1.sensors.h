@@ -3,12 +3,12 @@
 #define temperature_pins_count 4
 #define temperature_groups_count 2
 
-typedef uint16_t AnalogSignal_t;
+typedef int16_t AnalogSignal_t;
 #define ANALOG_SIGNALS_COUNT 12
 typedef union AnalogSignals_u {
   struct {
     AnalogSignal_t voltage[voltage_pins_count];
-    AnalogSignal_t temperature[temperature_groups_count][temperature_pins_count];
+    AnalogSignal_t temperature[temperature_pins_count][temperature_groups_count];
   };
   AnalogSignal_t all[ANALOG_SIGNALS_COUNT];
 } AnalogSignals_t;

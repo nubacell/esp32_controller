@@ -1397,12 +1397,12 @@ void serial_write_buffer(
 #define temperature_pins_count 4
 #define temperature_groups_count 2
 
-typedef uint16_t AnalogSignal_t;
+typedef int16_t AnalogSignal_t;
 #define ANALOG_SIGNALS_COUNT 12
 typedef union AnalogSignals_u {
   struct {
     AnalogSignal_t voltage[voltage_pins_count];
-    AnalogSignal_t temperature[temperature_groups_count][temperature_pins_count];
+    AnalogSignal_t temperature[temperature_pins_count][temperature_groups_count];
   };
   AnalogSignal_t all[ANALOG_SIGNALS_COUNT];
 } AnalogSignals_t;
@@ -4612,7 +4612,7 @@ static size_t analog_report_one(
     const SensorDeviceData_t & deviceData, unsigned i)
 {
   const auto analogSignal = deviceData.analogSignals.all[i];
-  return b.printf(" %4u", analogSignal);
+  return b.printf(" %4i", analogSignal);
 }
 
 static size_t analog_report_all(
@@ -4654,7 +4654,7 @@ static size_t SensorDevice_Data_report_one(
   + CONSTSTRLEN(" EA=1234567890") \
   + ( \
     CONSTSTRLEN("  123456") \
-    + CONSTSTRLEN(" 1234") * ANALOG_SIGNALS_COUNT \
+    + CONSTSTRLEN(" 12345") * ANALOG_SIGNALS_COUNT \
   ) * SPI_SENSORS_COUNT \
   \
   + CONSTSTRLEN("  XX") \
@@ -5119,7 +5119,7 @@ void Test::on_loop(uint32_t now_ms)
   \
   + ( \
     CONSTSTRLEN("  123456") \
-    + CONSTSTRLEN(" 1234") * ANALOG_SIGNALS_COUNT \
+    + CONSTSTRLEN(" 12345") * ANALOG_SIGNALS_COUNT \
   ) * SPI_SENSORS_COUNT \
   \
   + CONSTSTRLEN("  XX") \
