@@ -2,8 +2,8 @@
 #define CN_UART_NUM             0
 //#define CN_UART_BAUD            115200
 //#define CN_UART_BAUD            3000000
-//#define CN_UART_BAUD            2000000
-#define CN_UART_BAUD            1000000
+#define CN_UART_BAUD            2000000
+//#define CN_UART_BAUD            1000000
 
 #define PS_UART_NUM             1
 #define PS_UART_BAUD            9600

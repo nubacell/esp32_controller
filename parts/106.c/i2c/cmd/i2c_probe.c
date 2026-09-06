@@ -1,7 +1,7 @@
 
 void i2c_probe(const char * args)
 {
-  unsigned device = command_args_to_ul(args, nullptr);
+  unsigned device = command_args_to_u32(args, nullptr);
   LOG("device=0x%X/%u", device, device);
   if (!::nc::i2c::bus.init_done_) {
     if (!::nc::i2c::bus.init()) { return; }

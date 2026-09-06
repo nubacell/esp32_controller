@@ -16,6 +16,7 @@ static const commands_map_t commands_map[] = {
 #undef CMD
 #define COMMAND(cmd,func) { cmd, CONSTSTRLEN(cmd), func, }
   COMMAND("*IDN?", command_idn),
+  COMMAND("echo", command_echo),
 #undef COMMAND
 #define COMMAND(cmd) { #cmd, CONSTSTRLEN(#cmd), cmd, }
 

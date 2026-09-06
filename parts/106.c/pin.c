@@ -1,7 +1,7 @@
 
 void pin_dump(const char * args)
 {
-  unsigned pin = command_args_to_ul(args, nullptr);
+  unsigned pin = command_args_to_u32(args, nullptr);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
@@ -22,7 +22,7 @@ void pin_dump(const char * args)
 */
 void pin_reset(const char * args)
 {
-  unsigned pin = command_args_to_ul(args, nullptr);
+  unsigned pin = command_args_to_u32(args, nullptr);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
@@ -41,14 +41,14 @@ void pin_reset(const char * args)
 void pin_level(const char * args)
 {
   const char * tail = NULL;
-  unsigned pin = command_args_to_ul(args, &tail);
+  unsigned pin = command_args_to_u32(args, &tail);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
   }
 
   if (tail && *tail) {
-    unsigned v = command_args_to_ul(tail, nullptr);
+    unsigned v = command_args_to_u32(tail, nullptr);
     LOG(". setting pin=%u level=%u", pin, v);
     if (ESP_OK != gpio_set_level(gpio_num_t(pin), v)) {
       LOG("ERROR: %s(pin=%u)", "gpio_set_level", pin);
@@ -99,7 +99,7 @@ static void pin_modes_list()
 void pin_mode(const char * args)
 {
   const char * tail = NULL;
-  unsigned pin = command_args_to_ul(args, &tail);
+  unsigned pin = command_args_to_u32(args, &tail);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
@@ -117,7 +117,7 @@ void pin_mode(const char * args)
         return;
       }
     }
-    unsigned v = command_args_to_ul(tail, nullptr);
+    unsigned v = command_args_to_u32(tail, nullptr);
     for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
       if (pin_modes[i].mode == v) {
         LOG(". setting mode %u %s", pin_modes[i].mode, pin_modes[i].name);
@@ -167,7 +167,7 @@ static void pin_pulls_list()
 void pin_pull(const char * args)
 {
   const char * tail = NULL;
-  unsigned pin = command_args_to_ul(args, &tail);
+  unsigned pin = command_args_to_u32(args, &tail);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
@@ -185,7 +185,7 @@ void pin_pull(const char * args)
         return;
       }
     }
-    unsigned v = command_args_to_ul(tail, nullptr);
+    unsigned v = command_args_to_u32(tail, nullptr);
     for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
       if (pin_pulls[i].pull == v) {
         LOG(". setting pull %u %s", pin_pulls[i].pull, pin_pulls[i].name);

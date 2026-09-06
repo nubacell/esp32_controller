@@ -45,9 +45,13 @@ struct UartConfig {
     if (rxBufferSize) { hs->setRxBufferSize(rxBufferSize); }
     if (txBufferSize) { hs->setTxBufferSize(txBufferSize); }
     hs->begin(baud, SERIAL_8N1, rxd_gpio, txd_gpio);
+    // FIXME: Move the following to something like uartConfig_report_config()':
     ucLOG(". Rx GPIO=%i", rxd_gpio);
     ucLOG(". Tx GPIO=%i", txd_gpio);
     ucLOG(". baud=%u", baud);
+    if (rxBufferSize) { ucLOG(". rxBufferSize=%u", rxBufferSize); }
+    if (txBufferSize) { ucLOG(". txBufferSize=%u", txBufferSize); }
+    //hs->setRxFIFOFull(60);
   }
 
   uint32_t baudRate() const {

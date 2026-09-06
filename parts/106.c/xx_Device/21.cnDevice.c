@@ -1,4 +1,4 @@
 
-static CN_Device cnDevice = {
+CN_Device cnDevice = {
   /*.uartConfig =*/ &cn_uartConfig,
 };

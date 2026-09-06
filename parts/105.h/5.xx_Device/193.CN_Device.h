@@ -43,3 +43,5 @@ struct CN_Device
     }
   }
 };
+
+extern CN_Device cnDevice;

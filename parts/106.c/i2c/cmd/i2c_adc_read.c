@@ -1,7 +1,7 @@
 
 void i2c_adc_read(const char * args)
 {
-  unsigned register_number = command_args_to_ul(args, nullptr);
+  unsigned register_number = command_args_to_u32(args, nullptr);
   LOG("register_number=0x%X/%u", register_number, register_number);
   if (register_number >= 4) {
     LOG("ERROR: register_number must be < 4");

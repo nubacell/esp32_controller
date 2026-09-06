@@ -1,7 +1,7 @@
 
 void i2c_adc_single(const char * args)
 {
-  unsigned channel = command_args_to_ul(args, nullptr);
+  unsigned channel = command_args_to_u32(args, nullptr);
   LOG("channel=%u", channel);
   if (channel >= 4) {
     LOG("ERROR: channel must be < 4");

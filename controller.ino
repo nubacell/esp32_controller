@@ -39,8 +39,8 @@ esp_err_t gpio_output_enable(gpio_num_t gpio_num);
 #define CN_UART_NUM             0
 //#define CN_UART_BAUD            115200
 //#define CN_UART_BAUD            3000000
-//#define CN_UART_BAUD            2000000
-#define CN_UART_BAUD            1000000
+#define CN_UART_BAUD            2000000
+//#define CN_UART_BAUD            1000000
 
 #define PS_UART_NUM             1
 #define PS_UART_BAUD            9600
@@ -164,8 +164,6 @@ uint32_t command_args_to_u32(const char * args, const char ** tail);
 
 double command_args_to_ud(const char * args, const char ** tail);
 
-#define command_args_to_ul command_args_to_u32
-
 typedef void (*command_fn_t)(const char * args);
 
 typedef struct commands_map_s {
@@ -184,6 +182,8 @@ command_s_to_fn(
     const char * command_s,
     size_t command_len);
 
+void command_echo(const char * args);
+
 void el_id(const char * args);
 void el_clear_errors(const char * args);
 void el_function(const char * args);
@@ -193,6 +193,8 @@ void el_cv_level(const char * args);
 void el_cc_range(const char * args);
 void el_cv_range(const char * args);
 
+void command_idn(const char * args);
+
 void ps_id(const char * args);
 void ps_clear_alerts(const char * args);
 void ps_v(const char * args);
@@ -200,6 +202,32 @@ void ps_c(const char * args);
 void ps_ovp(const char * args);
 void ps_ocp(const char * args);
 void ps_output(const char * args);
+
+void ux_baud(unsigned n, const char * args);
+
+void u1_baud(const char * args);
+void u2_baud(const char * args);
+
+void ux_hex(unsigned n, const char * args);
+
+void ux_cr(unsigned n, const char * args);
+
+void ux_crlf(unsigned n, const char * args);
+
+void ux_lf(unsigned n, const char * args);
+
+void ux_lfcr(unsigned n, const char * args);
+
+void u1_hex(const char * args);
+void u2_hex(const char * args);
+void u1_cr(const char * args);
+void u2_cr(const char * args);
+void u1_crlf(const char * args);
+void u2_crlf(const char * args);
+void u1_lf(const char * args);
+void u2_lf(const char * args);
+void u1_lfcr(const char * args);
+void u2_lfcr(const char * args);
 
 #define ucLOG(format, args...) LOG("%s| " format, tag, ##args)
 struct UartConfig {
@@ -247,9 +275,13 @@ struct UartConfig {
     if (rxBufferSize) { hs->setRxBufferSize(rxBufferSize); }
     if (txBufferSize) { hs->setTxBufferSize(txBufferSize); }
     hs->begin(baud, SERIAL_8N1, rxd_gpio, txd_gpio);
+    // FIXME: Move the following to something like uartConfig_report_config()':
     ucLOG(". Rx GPIO=%i", rxd_gpio);
     ucLOG(". Tx GPIO=%i", txd_gpio);
     ucLOG(". baud=%u", baud);
+    if (rxBufferSize) { ucLOG(". rxBufferSize=%u", rxBufferSize); }
+    if (txBufferSize) { ucLOG(". txBufferSize=%u", txBufferSize); }
+    //hs->setRxFIFOFull(60);
   }
 
   uint32_t baudRate() const {
@@ -347,62 +379,51 @@ struct UartDevice
   bool eol_ = false;
   bool overflow_ = false;
 
+  mutable
+  struct Stats
+  {
+    size_t availableForRead_max_ = 0;
+    unsigned UART_FIFO_OVF_ERROR_ = 0;
+    unsigned UART_BUFFER_FULL_ = 0;
+    unsigned UART_PARITY_ERR_ = 0;
+    unsigned UART_PARITY_ERROR_ = 0;
+    unsigned UART_FRAME_ERROR_ = 0;
+  } stats_;
+
+  void onReceiveError(hardwareSerial_error_t e)
+  {
+    switch (e) {
+      case UART_FIFO_OVF_ERROR: ++stats_.UART_FIFO_OVF_ERROR_; break;
+      case UART_BUFFER_FULL   : ++stats_.UART_BUFFER_FULL_; break;
+      case UART_PARITY_ERROR  : ++stats_.UART_PARITY_ERROR_; break;
+      case UART_FRAME_ERROR   : ++stats_.UART_FRAME_ERROR_; break;
+      default: break;
+    }
+  }
+
+  void attach_onReceiveError()
+  {
+    uartConfig_->hs->onReceiveError(
+        [this](hardwareSerial_error_t e)
+        {
+          this->onReceiveError(e);
+        }
+    );
+  }
+
   UartDevice(const UartConfig * uartConfig)
     : uartConfig_(uartConfig)
   {}
 
+  size_t availableForRead() const;
+
   // assuming 'sizeof(buffer_) > 0'
-  void on_loop_readLine_reset()
-  {
-    buffer_used_ = 0;
-    overflow_ = false;
-    eol_ = false;
-    buffer_[0] = '\0'; // trailing '\0' for convenience
-  }
+  void on_loop_readLine_reset();
 
   // returns '(eol_ || overflow_)'
-  bool on_loop_readLine()
-  {
-    if (!eol_ && !overflow_) {
-      auto available = uartConfig_->availableForRead();
-      while (available--) {
-        const auto b = uartConfig_->read_byte(0);
-#if 1
-        if ('\r' == last_char_ && '\n' == b) { // CR+LF
-          last_char_ = 0; // intentionally store not '\n'
-        } else
-        if ('\n' == last_char_ && '\r' == b) { // LF+CR
-          last_char_ = 0; // intentionally store not '\r'
-        } else
-#endif
-        if ('\n' == b || '\r' == b) { // CR || LF
-          eol_ = true;
-          // last_char_ will be used on next byte to detect CR+LF and LF+CR
-          last_char_ = b;
-          break;
-        } else
-        // reserve space for trailing '\0'
-        if ((buffer_used_ + 1) < sizeof(buffer_)) {
-          buffer_[buffer_used_++] = b;
-          buffer_[buffer_used_] = '\0';
-          last_char_ = b;
-        } else {
-          overflow_ = true;
-          last_char_ = b;
-          break;
-        }
-      }
-    }
-    return eol_ || overflow_;
-  }
+  bool on_loop_readLine();
 
-  void on_loop(uint32_t now_ms) override
-  {
-    if (on_loop_readLine()) {
-      udLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
-      on_loop_readLine_reset();
-    }
-  }
+  void on_loop(uint32_t now_ms) override;
 };
 
 #define cnLOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
@@ -449,6 +470,8 @@ struct CN_Device
     }
   }
 };
+
+extern CN_Device cnDevice;
 
 #define XX_LOG(format, args...) LOG("%s| " format, uartConfig_->tag, ##args)
 struct XX_Device
@@ -810,46 +833,6 @@ struct Buffer
 
 } // namespace mk
 } // namespace nc
-
-struct Controller
-  : Runnable
-{
-
-  enum class State {
-
-    /*
-      Check if PS and PL are present and usable.
-      Make sure they are turned off.
-    */
-    init,
-
-    /*
-      Waiting for commands from raspberry on uart #0
-    */
-    idle,
-
-    /*
-      test running
-    */
-    active,
-  };
-  State state = State::init;
-
-  void on_ps_timeout()
-  {
-    LOG("");
-  }
-
-  void on_el_timeout()
-  {
-    LOG("");
-  }
-
-  void on_loop(uint32_t now_ms) override
-  {
-    //LOG("");
-  }
-};
 
 void i2c_adc_config(const char * args);
 
@@ -1376,6 +1359,22 @@ void serial_write_buffer(
         __FILE__, __LINE__, __PRETTY_FUNCTION__, \
         buffer, buffer_size, used);
 
+static constexpr size_t echo_buffer_size = 4096;
+
+static constexpr size_t uart_stats_buffer_size = 4096;
+
+namespace nc {
+
+typedef union shared_buffers_u
+{
+  char echo_buffer[echo_buffer_size];
+  char uart_stats_buffer[uart_stats_buffer_size];
+} shared_buffers_t;
+
+extern shared_buffers_t shared_buffers;
+
+} // namespace nc
+
 #define SPI_BUFFER_SIZE_MAX 64
 #define SPI_BUFFER_SIZE SPI_BUFFER_SIZE_MAX
 //#define SPI_BUFFER_SIZE 128
@@ -1741,6 +1740,8 @@ void test_dump(const char * args);
 void test_run(const char * args);
 
 void test_state(const char * args);
+
+void uart_stats_report();
 
 uint32_t cpu_sp_get()
 {
@@ -2197,86 +2198,6 @@ int32_t command_args_to_i32(const char * args, const char ** tail)
   return v;
 }
 
-// u1_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
-// u1_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
-// u1_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
-// u1_lf *IDN?
-
-// u2_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
-// u2_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
-// u2_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
-// u2_lf *IDN?
-// u2_lfcr *IDN?
-// u2_cr *IDN?
-// u2_crlf *IDN?
-// u2_lf *CLS?
-
-//static
-void ux_hex(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig0 = xx_uartConfigs[0];
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  for (;;) {
-    args = skip_whitespace(args);
-    if (!*args) { break; }
-    char * endptr = NULL;
-    uint8_t xx = strtoul(args, &endptr, 0);
-    LOG(". xx='0x%02X'", xx);
-
-    uartConfig0->write('"');
-    uartConfig0->write(xx);
-    uartConfig0->write('"');
-    uartConfig0->write('\r');
-    uartConfig0->write('\n');
-
-    uartConfig->write(xx);
-    args = endptr;
-  }
-}
-
-//static
-void ux_cr(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\r');
-}
-
-void ux_crlf(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\r');
-  uartConfig->write('\n');
-}
-
-//static
-void ux_lf(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\n');
-}
-
-void ux_lfcr(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-  uartConfig->write(args);
-  uartConfig->write('\n');
-  uartConfig->write('\r');
-}
-
-void u1_hex(const char * args) { ux_hex(1, args); }
-void u2_hex(const char * args) { ux_hex(2, args); }
-void u1_cr(const char * args) { ux_cr(1, args); }
-void u2_cr(const char * args) { ux_cr(2, args); }
-void u1_crlf(const char * args) { ux_crlf(1, args); }
-void u2_crlf(const char * args) { ux_crlf(2, args); }
-void u1_lf(const char * args) { ux_lf(1, args); }
-void u2_lf(const char * args) { ux_lf(2, args); }
-void u1_lfcr(const char * args) { ux_lfcr(1, args); }
-void u2_lfcr(const char * args) { ux_lfcr(2, args); }
-
 uint32_t command_args_to_u32(const char * args, const char ** tail)
 {
   unsigned v;
@@ -2331,29 +2252,6 @@ double command_args_to_ud(const char * args, const char ** tail)
   return v;
 }
 
-void ux_baud(unsigned n, const char * args)
-{
-  const UartConfig * uartConfig = xx_uartConfigs[n];
-
-  char * endptr = NULL;
-  uint32_t baudrate = strtoul(args, &endptr, 0);
-  if (endptr && *endptr) {
-    LOG("ignoring '%s'", endptr);
-  }
-  LOG("setting baudrate=%u", baudrate);
-  uartConfig->baudRate(baudrate);
-  LOG("active baudrate=%u", uartConfig->baudRate());
-}
-
-void u1_baud(const char * args) { ux_baud(1, args); }
-void u2_baud(const char * args) { ux_baud(2, args); }
-
-void command_idn(const char * args)
-{
-  (void) args;
-  LOG("NubaCell BT ESP32 v.0.0 sn:1234567890");
-}
-
 static const commands_map_t commands_map[] = {
 #define CMD(x) { #x, CONSTSTRLEN(#x), x, }
   CMD(u1_hex),
@@ -2371,6 +2269,7 @@ static const commands_map_t commands_map[] = {
 #undef CMD
 #define COMMAND(cmd,func) { cmd, CONSTSTRLEN(cmd), func, }
   COMMAND("*IDN?", command_idn),
+  COMMAND("echo", command_echo),
 #undef COMMAND
 #define COMMAND(cmd) { #cmd, CONSTSTRLEN(#cmd), cmd, }
 
@@ -2484,7 +2383,124 @@ command_s_to_fn(
       command_s, command_len);
 }
 
-Controller controller;
+void command_echo(const char * args)
+{
+  (void) args;
+
+  auto & buffer = ::nc::shared_buffers.echo_buffer;
+  size_t buffer_size = sizeof(buffer);
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/ECHO '%s'\n", args);
+
+  const auto need = b.need();
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
+
+  uart_stats_report();
+}
+
+void command_idn(const char * args)
+{
+  (void) args;
+  LOG("NubaCell BT ESP32 v.0.0 sn:1234567890");
+}
+
+void ux_baud(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+
+  char * endptr = NULL;
+  uint32_t baudrate = strtoul(args, &endptr, 0);
+  if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
+  }
+  LOG("setting baudrate=%u", baudrate);
+  uartConfig->baudRate(baudrate);
+  LOG("active baudrate=%u", uartConfig->baudRate());
+}
+
+void u1_baud(const char * args) { ux_baud(1, args); }
+void u2_baud(const char * args) { ux_baud(2, args); }
+
+// u1_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
+// u1_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
+// u1_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
+// u1_lf *IDN?
+
+// u2_hex 0x0D 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0D 0x0A
+// u2_hex 0x0A 0x0D 0x2A 0x49 0x44 0x4E 0x3F 0x0A 0x0D
+// u2_hex 0x0A 0x2A 0x49 0x44 0x4E 0x3F 0x0A
+// u2_lf *IDN?
+// u2_lfcr *IDN?
+// u2_cr *IDN?
+// u2_crlf *IDN?
+// u2_lf *CLS?
+
+//static
+void ux_hex(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig0 = xx_uartConfigs[0];
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  for (;;) {
+    args = skip_whitespace(args);
+    if (!*args) { break; }
+    char * endptr = NULL;
+    uint8_t xx = strtoul(args, &endptr, 0);
+    LOG(". xx='0x%02X'", xx);
+
+    uartConfig0->write('"');
+    uartConfig0->write(xx);
+    uartConfig0->write('"');
+    uartConfig0->write('\r');
+    uartConfig0->write('\n');
+
+    uartConfig->write(xx);
+    args = endptr;
+  }
+}
+
+//static
+void ux_cr(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\r');
+}
+
+void ux_crlf(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\r');
+  uartConfig->write('\n');
+}
+
+//static
+void ux_lf(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\n');
+}
+
+void ux_lfcr(unsigned n, const char * args)
+{
+  const UartConfig * uartConfig = xx_uartConfigs[n];
+  uartConfig->write(args);
+  uartConfig->write('\n');
+  uartConfig->write('\r');
+}
+
+void u1_hex(const char * args) { ux_hex(1, args); }
+void u2_hex(const char * args) { ux_hex(2, args); }
+void u1_cr(const char * args) { ux_cr(1, args); }
+void u2_cr(const char * args) { ux_cr(2, args); }
+void u1_crlf(const char * args) { ux_crlf(1, args); }
+void u2_crlf(const char * args) { ux_crlf(2, args); }
+void u1_lf(const char * args) { ux_lf(1, args); }
+void u2_lf(const char * args) { ux_lf(2, args); }
+void u1_lfcr(const char * args) { ux_lfcr(1, args); }
+void u2_lfcr(const char * args) { ux_lfcr(2, args); }
 
 void i2c_adc_config(const char * args)
 {
@@ -2498,7 +2514,7 @@ void i2c_adc_config(const char * args)
 
 void i2c_adc_read(const char * args)
 {
-  unsigned register_number = command_args_to_ul(args, nullptr);
+  unsigned register_number = command_args_to_u32(args, nullptr);
   LOG("register_number=0x%X/%u", register_number, register_number);
   if (register_number >= 4) {
     LOG("ERROR: register_number must be < 4");
@@ -2520,7 +2536,7 @@ void i2c_adc_read_repeat(const char * args)
 
 void i2c_adc_single(const char * args)
 {
-  unsigned channel = command_args_to_ul(args, nullptr);
+  unsigned channel = command_args_to_u32(args, nullptr);
   LOG("channel=%u", channel);
   if (channel >= 4) {
     LOG("ERROR: channel must be < 4");
@@ -2578,7 +2594,7 @@ void i2c_adc_single(const char * args)
 void i2c_adc_write(const char * args)
 {
   const char * tail = NULL;
-  unsigned register_number = command_args_to_ul(args, &tail);
+  unsigned register_number = command_args_to_u32(args, &tail);
   LOG("register_number=0x%X/%u", register_number, register_number);
   if (register_number >= 4) {
     LOG("ERROR: register_number must be < 4");
@@ -2588,7 +2604,7 @@ void i2c_adc_write(const char * args)
   if (!::nc::i2c::adc.init_done_ && !::nc::i2c::adc.init()) { return; }
 
   if (tail && *tail) {
-    unsigned v = command_args_to_ul(tail, nullptr);
+    unsigned v = command_args_to_u32(tail, nullptr);
     const auto r = ::nc::i2c::adc.write(::nc::i2c::Adc::Register(register_number), v);
     LOG("r=%i v=0x%04X/%u/%i", r, v, v, int16_t(v));
   }
@@ -2602,7 +2618,7 @@ void i2c_adc_write(const char * args)
 
 void i2c_probe(const char * args)
 {
-  unsigned device = command_args_to_ul(args, nullptr);
+  unsigned device = command_args_to_u32(args, nullptr);
   LOG("device=0x%X/%u", device, device);
   if (!::nc::i2c::bus.init_done_) {
     if (!::nc::i2c::bus.init()) { return; }
@@ -3707,7 +3723,7 @@ void Monitor::state(State new_state)
 
 void pin_dump(const char * args)
 {
-  unsigned pin = command_args_to_ul(args, nullptr);
+  unsigned pin = command_args_to_u32(args, nullptr);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
@@ -3728,7 +3744,7 @@ void pin_dump(const char * args)
 */
 void pin_reset(const char * args)
 {
-  unsigned pin = command_args_to_ul(args, nullptr);
+  unsigned pin = command_args_to_u32(args, nullptr);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
@@ -3747,14 +3763,14 @@ void pin_reset(const char * args)
 void pin_level(const char * args)
 {
   const char * tail = NULL;
-  unsigned pin = command_args_to_ul(args, &tail);
+  unsigned pin = command_args_to_u32(args, &tail);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
   }
 
   if (tail && *tail) {
-    unsigned v = command_args_to_ul(tail, nullptr);
+    unsigned v = command_args_to_u32(tail, nullptr);
     LOG(". setting pin=%u level=%u", pin, v);
     if (ESP_OK != gpio_set_level(gpio_num_t(pin), v)) {
       LOG("ERROR: %s(pin=%u)", "gpio_set_level", pin);
@@ -3805,7 +3821,7 @@ static void pin_modes_list()
 void pin_mode(const char * args)
 {
   const char * tail = NULL;
-  unsigned pin = command_args_to_ul(args, &tail);
+  unsigned pin = command_args_to_u32(args, &tail);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
@@ -3823,7 +3839,7 @@ void pin_mode(const char * args)
         return;
       }
     }
-    unsigned v = command_args_to_ul(tail, nullptr);
+    unsigned v = command_args_to_u32(tail, nullptr);
     for (unsigned i = 0; i < ARRAY_SIZE(pin_modes); ++i) {
       if (pin_modes[i].mode == v) {
         LOG(". setting mode %u %s", pin_modes[i].mode, pin_modes[i].name);
@@ -3873,7 +3889,7 @@ static void pin_pulls_list()
 void pin_pull(const char * args)
 {
   const char * tail = NULL;
-  unsigned pin = command_args_to_ul(args, &tail);
+  unsigned pin = command_args_to_u32(args, &tail);
   if (pin >= GPIO_NUM_MAX) {
     LOG("ERROR: pin=%u must be < GPIO_NUM_MAX=%u", pin, GPIO_NUM_MAX);
     return;
@@ -3891,7 +3907,7 @@ void pin_pull(const char * args)
         return;
       }
     }
-    unsigned v = command_args_to_ul(tail, nullptr);
+    unsigned v = command_args_to_u32(tail, nullptr);
     for (unsigned i = 0; i < ARRAY_SIZE(pin_pulls); ++i) {
       if (pin_pulls[i].pull == v) {
         LOG(". setting pull %u %s", pin_pulls[i].pull, pin_pulls[i].name);
@@ -3941,29 +3957,6 @@ const char * to_string(ELState elstate) {
   }
 }
 
-void profile_steps(const char * args)
-{
-  //LOG("args=%p", args);
-  args = skip_whitespace(args);
-  //LOG("args=%p", args);
-  if (*args) {
-    char * endptr = NULL;
-    uint32_t new_steps_count = strtoul(args, &endptr, 0);
-    if (endptr && *endptr) {
-      LOG("ignoring '%s'", endptr);
-    }
-    LOG("new_steps_count=%u", new_steps_count);
-    profile.steps_count(new_steps_count);
-  }
-  LOG("profile_steps=%u", profile.steps_count_);
-}
-
-void profile_steps_dump(const char * args)
-{
-  (void) args;
-  profile.dump_steps();
-}
-
 void profile_step(const char * args)
 {
   args = skip_whitespace(args);
@@ -3989,10 +3982,34 @@ void profile_step(const char * args)
       ProfileStep * profileStep = &profileSteps_[step];
       if (endptr && *endptr) {
         profileStep->apply(endptr);
+      } else {
+        profileStep->dump();
       }
-      profileStep->dump();
     }
   }
+}
+
+void profile_steps(const char * args)
+{
+  //LOG("args=%p", args);
+  args = skip_whitespace(args);
+  //LOG("args=%p", args);
+  if (*args) {
+    char * endptr = NULL;
+    uint32_t new_steps_count = strtoul(args, &endptr, 0);
+    if (endptr && *endptr) {
+      LOG("ignoring '%s'", endptr);
+    }
+    LOG("new_steps_count=%u", new_steps_count);
+    profile.steps_count(new_steps_count);
+  }
+  LOG("profile_steps=%u", profile.steps_count_);
+}
+
+void profile_steps_dump(const char * args)
+{
+  (void) args;
+  profile.dump_steps();
 }
 
 void ProfileStep::apply(const char * args)
@@ -4127,6 +4144,12 @@ void serial_write_buffer(
         buffer_size, used + 1);
   }
 }
+
+namespace nc {
+
+shared_buffers_t shared_buffers;
+
+} // namespace nc
 
 const char * skip_whitespace(const char * p)
 {
@@ -5449,7 +5472,8 @@ const UartConfig cn_uartConfig = {
   .rxd_gpio = -1, // '-1' == 'do not change'
   .txd_gpio = -1, // '-1' == 'do not change'
 //.rxBufferSize = 0,
-  .rxBufferSize = 0x400,
+  .rxBufferSize = 0x100,
+//.rxBufferSize = 0x400,
   .txBufferSize = 0x800,
 //.txBufferSize = 0x1000,
 };
@@ -5486,6 +5510,39 @@ void xx_uartConfigs_init() {
   for (unsigned i = 0; i < ARRAY_SIZE(xx_uartConfigs); ++i) {
     xx_uartConfigs[i]->init();
   }
+}
+
+void uart_stats_report()
+{
+  auto & buffer = ::nc::shared_buffers.uart_stats_buffer;
+  size_t buffer_size = sizeof(buffer);
+
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/STATS/UART availableForRead_max/FIFO/BUFFER/PARITY/FRAME");
+
+  static const struct {
+    const char * const tag;
+    const UartDevice * const uartDevice;
+  } uartDevices[] = {
+    { "cn", &cnDevice, },
+    { "ps", &psDevice, },
+    { "el", &elDevice, },
+  };;
+  for (unsigned i = 0; i < ARRAY_SIZE(uartDevices); ++i) {
+    b.printf(" %s=%zu/%u/%u/%u/%u", uartDevices[i].tag,
+      uartDevices[i].uartDevice->stats_.availableForRead_max_,
+      uartDevices[i].uartDevice->stats_.UART_FIFO_OVF_ERROR_,
+      uartDevices[i].uartDevice->stats_.UART_BUFFER_FULL_,
+      uartDevices[i].uartDevice->stats_.UART_PARITY_ERROR_,
+      uartDevices[i].uartDevice->stats_.UART_FRAME_ERROR_
+    );
+  }
+
+  b.printf("\n");
+
+  const auto need = b.need();
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 }
 
 // TODO: Use 'enum class' instead of 'unsigned'
@@ -5806,7 +5863,7 @@ void PS_Device::clear_alerts() const
   write_cmd(cmd);
 }
 
-static CN_Device cnDevice = {
+CN_Device cnDevice = {
   /*.uartConfig =*/ &cn_uartConfig,
 };
 
@@ -6022,29 +6079,89 @@ void el_cv_range(const char * args)
   }
   elDevice.cv_range();
 }
-static Runnable * const uartDevices[] = {
+
+size_t UartDevice::availableForRead() const
+{
+  const auto available = uartConfig_->availableForRead();
+  if (stats_.availableForRead_max_ < available) {
+    stats_.availableForRead_max_ = available;
+  }
+  return available;
+}
+
+void UartDevice::on_loop(uint32_t now_ms)
+{
+  if (on_loop_readLine()) {
+    udLOG("eol=%i overflow=%i buffer='%s'", eol_, overflow_, buffer_);
+    on_loop_readLine_reset();
+  }
+}
+
+// returns '(eol_ || overflow_)'
+bool UartDevice::on_loop_readLine()
+{
+  if (!eol_ && !overflow_) {
+    auto available = availableForRead();
+    while (available--) {
+      const auto b = uartConfig_->read_byte(0);
+#if 1
+      if ('\r' == last_char_ && '\n' == b) { // CR+LF
+        last_char_ = 0; // intentionally store not '\n'
+      } else
+      if ('\n' == last_char_ && '\r' == b) { // LF+CR
+        last_char_ = 0; // intentionally store not '\r'
+      } else
+#endif
+      if ('\n' == b || '\r' == b) { // CR || LF
+        eol_ = true;
+        // last_char_ will be used on next byte to detect CR+LF and LF+CR
+        last_char_ = b;
+        break;
+      } else
+      // reserve space for trailing '\0'
+      if ((buffer_used_ + 1) < sizeof(buffer_)) {
+        buffer_[buffer_used_++] = b;
+        buffer_[buffer_used_] = '\0';
+        last_char_ = b;
+      } else {
+        overflow_ = true;
+        last_char_ = b;
+        break;
+      }
+    }
+  }
+  return eol_ || overflow_;
+}
+
+// assuming 'sizeof(buffer_) > 0'
+void UartDevice::on_loop_readLine_reset()
+{
+  buffer_used_ = 0;
+  overflow_ = false;
+  eol_ = false;
+  buffer_[0] = '\0'; // trailing '\0' for convenience
+}
+
+// TODO: Implement 'runnables_[]' switching
+
+static Runnable * const runnables_[] = {
+  &::nc::loop::stats_,
   &cnDevice,
   &psDevice,
   &elDevice,
+  &iMeter,
+  &spiDevice,
+  &test,
+  &::nc::monitor_,
 };
-
-static void uartDevices_on_loop(int32_t now_ms) {
-  for (unsigned i = 0; i < ARRAY_SIZE(uartDevices); ++i) {
-    uartDevices[i]->on_loop(now_ms);
-  }
-}
 
 void loop()
 {
   uint32_t now_ms = millis();
 
-  ::nc::loop::stats_.on_loop(now_ms);
-
-  uartDevices_on_loop(now_ms);
-  iMeter.on_loop(now_ms);
-  spiDevice.on_loop(now_ms);
-  test.on_loop(now_ms);
-  ::nc::monitor_.on_loop(now_ms);
+  for (unsigned i = 0; i < ARRAY_SIZE(runnables_); ++i) {
+    runnables_[i]->on_loop(now_ms);
+  }
 }
 
 void setup()
@@ -6053,4 +6170,8 @@ void setup()
   //scope_sync_setup();
   spi_setup();
   report_config();
+
+  cnDevice.attach_onReceiveError();
+  psDevice.attach_onReceiveError();
+  elDevice.attach_onReceiveError();
 }
