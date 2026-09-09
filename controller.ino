@@ -235,13 +235,15 @@ struct UartConfig {
   HardwareSerial * hs;
   uint32_t baud;
 
+  size_t rxBufferSize;
+  size_t txBufferSize;
+
   uint8_t n;
 
   int8_t rxd_gpio;
   int8_t txd_gpio;
 
-  size_t rxBufferSize;
-  size_t txBufferSize;
+  uint8_t rx_fifo_irq_bytes;
 
   /*
     ESP32 uses 'HardwareSerial' to represent Arduino's 'Serial*'.
@@ -275,13 +277,41 @@ struct UartConfig {
     if (rxBufferSize) { hs->setRxBufferSize(rxBufferSize); }
     if (txBufferSize) { hs->setTxBufferSize(txBufferSize); }
     hs->begin(baud, SERIAL_8N1, rxd_gpio, txd_gpio);
+    if (rx_fifo_irq_bytes) { hs->setRxFIFOFull(rx_fifo_irq_bytes); }
+#if 0
+    if (0 == n) {
+      /*
+        #define XON  0x11
+        #define XOFF 0x13
+
+        rx_thresh_xon  < 128
+        rx_thresh_xoff < 128
+
+        esp_err_t uart_set_sw_flow_ctrl(
+            uart_port_t uart_num,
+            bool enable,
+            uint8_t rx_thresh_xon,
+            uint8_t rx_thresh_xoff)
+      */
+      if (ESP_OK != uart_set_sw_flow_ctrl(uart_port_t(0), true, 20, 80)) {
+        LOG("ERROR: '%s()' %s", "uart_set_sw_flow_ctrl", "failure");
+      } else {
+        LOG("INFO: '%s()' %s", "uart_set_sw_flow_ctrl", "success");
+      }
+    }
+#endif
     // FIXME: Move the following to something like uartConfig_report_config()':
+    report();
+  }
+
+  void report() const
+  {
     ucLOG(". Rx GPIO=%i", rxd_gpio);
     ucLOG(". Tx GPIO=%i", txd_gpio);
     ucLOG(". baud=%u", baud);
     if (rxBufferSize) { ucLOG(". rxBufferSize=%u", rxBufferSize); }
     if (txBufferSize) { ucLOG(". txBufferSize=%u", txBufferSize); }
-    //hs->setRxFIFOFull(60);
+    if (rx_fifo_irq_bytes) { ucLOG(". rx_fifo_irq_bytes=%u", rx_fifo_irq_bytes); }
   }
 
   uint32_t baudRate() const {
@@ -832,6 +862,14 @@ struct Buffer
 };
 
 } // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
+void uart_stats(const char * args);
+
+} // namespace cli
 } // namespace nc
 
 void i2c_adc_config(const char * args);
@@ -2163,6 +2201,18 @@ size_t Buffer::printf(const char* format, ...) noexcept
 } // namespace mk
 } // namespace nc
 
+namespace nc {
+namespace cli {
+
+void uart_stats(const char * args)
+{
+  (void) args;
+  uart_stats_report();
+}
+
+} // namespace cli
+} // namespace nc
+
 const char CMD_IDENTIFY[] = "*IDN?";
 
 void stats(const char * args)
@@ -2252,6 +2302,8 @@ double command_args_to_ud(const char * args, const char ** tail)
   return v;
 }
 
+using namespace ::nc::cli;
+
 static const commands_map_t commands_map[] = {
 #define CMD(x) { #x, CONSTSTRLEN(#x), x, }
   CMD(u1_hex),
@@ -2336,6 +2388,8 @@ static const commands_map_t commands_map[] = {
   COMMAND(monitor_I),
   COMMAND(monitor_V),
   COMMAND(monitor_T),
+
+  COMMAND(uart_stats),
 #undef COMMAND
 };
 
@@ -2396,7 +2450,7 @@ void command_echo(const char * args)
   const auto need = b.need();
   SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 
-  uart_stats_report();
+  //uart_stats_report();
 }
 
 void command_idn(const char * args)
@@ -5468,36 +5522,44 @@ const UartConfig cn_uartConfig = {
   .tag =  "CN-u" MAKE_STRING(CN_UART_NUM),
   .hs = &Serial,
   .baud = CN_UART_BAUD,
+
+//.rxBufferSize = 0,
+//.rxBufferSize = 0x200,
+//.rxBufferSize = 0x400,
+  .rxBufferSize = 0x4000,
+
+  .txBufferSize = 0x800,
+//.txBufferSize = 0x1000,
+
   .n = 0,
   .rxd_gpio = -1, // '-1' == 'do not change'
   .txd_gpio = -1, // '-1' == 'do not change'
-//.rxBufferSize = 0,
-  .rxBufferSize = 0x100,
-//.rxBufferSize = 0x400,
-  .txBufferSize = 0x800,
-//.txBufferSize = 0x1000,
+
+//.rx_fifo_irq_bytes = 60,
+  .rx_fifo_irq_bytes = 110, // ??
+//.rx_fifo_irq_bytes = 100, // OK
 };
 
 static const UartConfig ps_uartConfig = {
   .tag =  "PS-u" MAKE_STRING(PS_UART_NUM),
   .hs = &Serial1,
   .baud = PS_UART_BAUD,
+  .rxBufferSize = 0,
+  .txBufferSize = 0,
   .n = 1,
   .rxd_gpio = PS_UART_RX_GPIO,
   .txd_gpio = PS_UART_TX_GPIO,
-  .rxBufferSize = 0,
-  .txBufferSize = 0,
 };
 
 static const UartConfig el_uartConfig = {
   .tag = "EL-u" MAKE_STRING(EL_UART_NUM),
   .hs = &Serial2,
   .baud = EL_UART_BAUD,
+  .rxBufferSize = 0,
+  .txBufferSize = 0,
   .n = 2,
   .rxd_gpio = EL_UART_RX_GPIO,
   .txd_gpio = EL_UART_TX_GPIO,
-  .rxBufferSize = 0,
-  .txBufferSize = 0,
 };
 
 const UartConfig * const xx_uartConfigs[] = {

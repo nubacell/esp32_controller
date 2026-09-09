@@ -1,4 +1,6 @@
 
+using namespace ::nc::cli;
+
 static const commands_map_t commands_map[] = {
 #define CMD(x) { #x, CONSTSTRLEN(#x), x, }
   CMD(u1_hex),
@@ -83,6 +85,8 @@ static const commands_map_t commands_map[] = {
   COMMAND(monitor_I),
   COMMAND(monitor_V),
   COMMAND(monitor_T),
+
+  COMMAND(uart_stats),
 #undef COMMAND
 };
 

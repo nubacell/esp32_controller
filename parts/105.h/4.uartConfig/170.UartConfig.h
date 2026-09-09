@@ -5,13 +5,15 @@ struct UartConfig {
   HardwareSerial * hs;
   uint32_t baud;
 
+  size_t rxBufferSize;
+  size_t txBufferSize;
+
   uint8_t n;
 
   int8_t rxd_gpio;
   int8_t txd_gpio;
 
-  size_t rxBufferSize;
-  size_t txBufferSize;
+  uint8_t rx_fifo_irq_bytes;
 
   /*
     ESP32 uses 'HardwareSerial' to represent Arduino's 'Serial*'.
@@ -45,13 +47,41 @@ struct UartConfig {
     if (rxBufferSize) { hs->setRxBufferSize(rxBufferSize); }
     if (txBufferSize) { hs->setTxBufferSize(txBufferSize); }
     hs->begin(baud, SERIAL_8N1, rxd_gpio, txd_gpio);
+    if (rx_fifo_irq_bytes) { hs->setRxFIFOFull(rx_fifo_irq_bytes); }
+#if 0
+    if (0 == n) {
+      /*
+        #define XON  0x11
+        #define XOFF 0x13
+
+        rx_thresh_xon  < 128
+        rx_thresh_xoff < 128
+
+        esp_err_t uart_set_sw_flow_ctrl(
+            uart_port_t uart_num,
+            bool enable,
+            uint8_t rx_thresh_xon,
+            uint8_t rx_thresh_xoff)
+      */
+      if (ESP_OK != uart_set_sw_flow_ctrl(uart_port_t(0), true, 20, 80)) {
+        LOG("ERROR: '%s()' %s", "uart_set_sw_flow_ctrl", "failure");
+      } else {
+        LOG("INFO: '%s()' %s", "uart_set_sw_flow_ctrl", "success");
+      }
+    }
+#endif
     // FIXME: Move the following to something like uartConfig_report_config()':
+    report();
+  }
+
+  void report() const
+  {
     ucLOG(". Rx GPIO=%i", rxd_gpio);
     ucLOG(". Tx GPIO=%i", txd_gpio);
     ucLOG(". baud=%u", baud);
     if (rxBufferSize) { ucLOG(". rxBufferSize=%u", rxBufferSize); }
     if (txBufferSize) { ucLOG(". txBufferSize=%u", txBufferSize); }
-    //hs->setRxFIFOFull(60);
+    if (rx_fifo_irq_bytes) { ucLOG(". rx_fifo_irq_bytes=%u", rx_fifo_irq_bytes); }
   }
 
   uint32_t baudRate() const {
