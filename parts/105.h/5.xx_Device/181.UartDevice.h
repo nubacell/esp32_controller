@@ -15,12 +15,17 @@ struct UartDevice
   mutable
   struct Stats
   {
+    // rx
     size_t availableForRead_max_ = 0;
     unsigned UART_FIFO_OVF_ERROR_ = 0;
     unsigned UART_BUFFER_FULL_ = 0;
     unsigned UART_PARITY_ERR_ = 0;
     unsigned UART_PARITY_ERROR_ = 0;
     unsigned UART_FRAME_ERROR_ = 0;
+
+    // tx
+    size_t availableForWrite_min_ = (size_t)-1;
+    size_t availableForWrite_max_ = 0;
   } stats_;
 
   void onReceiveError(hardwareSerial_error_t e)
@@ -49,6 +54,7 @@ struct UartDevice
   {}
 
   size_t availableForRead() const;
+  size_t availableForWrite() const;
 
   // assuming 'sizeof(buffer_) > 0'
   void on_loop_readLine_reset();

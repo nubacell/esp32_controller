@@ -21,7 +21,7 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
       return;
     }
 
-    memset(::nc::spi::buffers::rx, 'R', sizeof(::nc::spi::buffers::rx));
+    //memset(::nc::spi::buffers::rx, 'R', sizeof(::nc::spi::buffers::rx));
     //memset(::nc::spi::buffers::tx, 'T', sizeof(::nc::spi::buffers::tx));
     //memset(::nc::spi::buffers::tx, 0x00, sizeof(::nc::spi::buffers::tx));
     //memset(::nc::spi::buffers::tx, 0x0F, sizeof(::nc::spi::buffers::tx));

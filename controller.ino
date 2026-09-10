@@ -412,12 +412,17 @@ struct UartDevice
   mutable
   struct Stats
   {
+    // rx
     size_t availableForRead_max_ = 0;
     unsigned UART_FIFO_OVF_ERROR_ = 0;
     unsigned UART_BUFFER_FULL_ = 0;
     unsigned UART_PARITY_ERR_ = 0;
     unsigned UART_PARITY_ERROR_ = 0;
     unsigned UART_FRAME_ERROR_ = 0;
+
+    // tx
+    size_t availableForWrite_min_ = (size_t)-1;
+    size_t availableForWrite_max_ = 0;
   } stats_;
 
   void onReceiveError(hardwareSerial_error_t e)
@@ -446,6 +451,7 @@ struct UartDevice
   {}
 
   size_t availableForRead() const;
+  size_t availableForWrite() const;
 
   // assuming 'sizeof(buffer_) > 0'
   void on_loop_readLine_reset();
@@ -3488,7 +3494,7 @@ static float scale_I(uint16_t v)
   return V_to_I(float(v) * 0.0001875);
 }
 
-static float scale_V(uint16_t v)
+static float scale_V(int16_t v)
 {
   return float(v) / 1000.;
 }
@@ -4182,6 +4188,12 @@ void serial_write_buffer(
     char * buffer, size_t buffer_size, size_t used)
 {
   if (used < buffer_size) {
+    const size_t availableForWrite_ = cnDevice.availableForWrite();
+    if (availableForWrite_ < used) {
+      log(file, line, function,
+          "WARNING: availableForWrite_=%zu < used=%zu",
+          availableForWrite_, used);
+    }
     Serial.write(buffer, used);
 #if 0
     log(file, line, function,
@@ -4944,7 +4956,7 @@ void SPI_Device::on_state_idle(uint32_t now_ms)
       return;
     }
 
-    memset(::nc::spi::buffers::rx, 'R', sizeof(::nc::spi::buffers::rx));
+    //memset(::nc::spi::buffers::rx, 'R', sizeof(::nc::spi::buffers::rx));
     //memset(::nc::spi::buffers::tx, 'T', sizeof(::nc::spi::buffers::tx));
     //memset(::nc::spi::buffers::tx, 0x00, sizeof(::nc::spi::buffers::tx));
     //memset(::nc::spi::buffers::tx, 0x0F, sizeof(::nc::spi::buffers::tx));
@@ -5465,6 +5477,7 @@ void Test::on_state_cleanup(uint32_t now_ms)
   deactivate_PS_EL();
   LOG("--- test finished ---");
   Serial.print("/TEST/FINISHED\n");
+  uart_stats_report();
   ::rpi::reportStats();
   state(State::idle);
 }
@@ -5528,8 +5541,9 @@ const UartConfig cn_uartConfig = {
 //.rxBufferSize = 0x400,
   .rxBufferSize = 0x4000,
 
-  .txBufferSize = 0x800,
+//.txBufferSize = 0x800,
 //.txBufferSize = 0x1000,
+  .txBufferSize = 0x4000,
 
   .n = 0,
   .rxd_gpio = -1, // '-1' == 'do not change'
@@ -5581,7 +5595,7 @@ void uart_stats_report()
 
   ::nc::mk::Buffer b(buffer, buffer_size);
 
-  b.printf("/STATS/UART availableForRead_max/FIFO/BUFFER/PARITY/FRAME");
+  b.printf("/STATS/UART rx{available.max/FIFO/BUFFER/PARITY/FRAME} tx{available.{min/max}}");
 
   static const struct {
     const char * const tag;
@@ -5592,12 +5606,14 @@ void uart_stats_report()
     { "el", &elDevice, },
   };;
   for (unsigned i = 0; i < ARRAY_SIZE(uartDevices); ++i) {
-    b.printf(" %s=%zu/%u/%u/%u/%u", uartDevices[i].tag,
+    b.printf(" %s %zi/%u/%u/%u/%u %zi/%zi", uartDevices[i].tag,
       uartDevices[i].uartDevice->stats_.availableForRead_max_,
       uartDevices[i].uartDevice->stats_.UART_FIFO_OVF_ERROR_,
       uartDevices[i].uartDevice->stats_.UART_BUFFER_FULL_,
       uartDevices[i].uartDevice->stats_.UART_PARITY_ERROR_,
-      uartDevices[i].uartDevice->stats_.UART_FRAME_ERROR_
+      uartDevices[i].uartDevice->stats_.UART_FRAME_ERROR_,
+      uartDevices[i].uartDevice->stats_.availableForWrite_min_,
+      uartDevices[i].uartDevice->stats_.availableForWrite_max_
     );
   }
 
@@ -6147,6 +6163,18 @@ size_t UartDevice::availableForRead() const
   const auto available = uartConfig_->availableForRead();
   if (stats_.availableForRead_max_ < available) {
     stats_.availableForRead_max_ = available;
+  }
+  return available;
+}
+
+size_t UartDevice::availableForWrite() const
+{
+  const auto available = uartConfig_->availableForWrite();
+  if (stats_.availableForWrite_max_ < available) {
+    stats_.availableForWrite_max_ = available;
+  }
+  if (stats_.availableForWrite_min_ > available) {
+    stats_.availableForWrite_min_ = available;
   }
   return available;
 }

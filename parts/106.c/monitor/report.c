@@ -11,7 +11,7 @@ static float scale_I(uint16_t v)
   return V_to_I(float(v) * 0.0001875);
 }
 
-static float scale_V(uint16_t v)
+static float scale_V(int16_t v)
 {
   return float(v) / 1000.;
 }

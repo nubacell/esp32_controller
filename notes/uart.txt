@@ -1,0 +1,27 @@
+
+uart
+  hw
+    config
+      report
+      baudRate get/set
+        uint32_t baudRate()
+        void baudRate(uint32_t baud)
+    stats
+      rx -> ../rx/stats
+      tx -> ../tx/stats
+
+    rx
+      size_t availableForRead()
+      void timeout_(uint32_t timeout_ms)
+      size_t read_(byte * p, size_t size) const
+      size_t read(byte * p, size_t size, uint32_t timeout_ms)
+      byte read_byte(uint32_t timeout_ms)
+      size_t readLine(byte * p, size_t size, uint32_t timeout_ms)
+      size_t readLine_z(byte * p, size_t size, uint32_t timeout_ms)
+
+    tx
+      size_t availableForWrite()
+      void write(const byte b)
+      void write(const byte * p, size_t size)
+      void write(const char * s)
+      void finish_output()

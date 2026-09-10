@@ -6,7 +6,7 @@ void uart_stats_report()
 
   ::nc::mk::Buffer b(buffer, buffer_size);
 
-  b.printf("/STATS/UART availableForRead_max/FIFO/BUFFER/PARITY/FRAME");
+  b.printf("/STATS/UART rx{available.max/FIFO/BUFFER/PARITY/FRAME} tx{available.{min/max}}");
 
   static const struct {
     const char * const tag;
@@ -17,12 +17,14 @@ void uart_stats_report()
     { "el", &elDevice, },
   };;
   for (unsigned i = 0; i < ARRAY_SIZE(uartDevices); ++i) {
-    b.printf(" %s=%zu/%u/%u/%u/%u", uartDevices[i].tag,
+    b.printf(" %s %zi/%u/%u/%u/%u %zi/%zi", uartDevices[i].tag,
       uartDevices[i].uartDevice->stats_.availableForRead_max_,
       uartDevices[i].uartDevice->stats_.UART_FIFO_OVF_ERROR_,
       uartDevices[i].uartDevice->stats_.UART_BUFFER_FULL_,
       uartDevices[i].uartDevice->stats_.UART_PARITY_ERROR_,
-      uartDevices[i].uartDevice->stats_.UART_FRAME_ERROR_
+      uartDevices[i].uartDevice->stats_.UART_FRAME_ERROR_,
+      uartDevices[i].uartDevice->stats_.availableForWrite_min_,
+      uartDevices[i].uartDevice->stats_.availableForWrite_max_
     );
   }
 

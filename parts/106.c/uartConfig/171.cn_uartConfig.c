@@ -9,8 +9,9 @@ const UartConfig cn_uartConfig = {
 //.rxBufferSize = 0x400,
   .rxBufferSize = 0x4000,
 
-  .txBufferSize = 0x800,
+//.txBufferSize = 0x800,
 //.txBufferSize = 0x1000,
+  .txBufferSize = 0x4000,
 
   .n = 0,
   .rxd_gpio = -1, // '-1' == 'do not change'

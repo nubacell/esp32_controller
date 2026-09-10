@@ -4,6 +4,12 @@ void serial_write_buffer(
     char * buffer, size_t buffer_size, size_t used)
 {
   if (used < buffer_size) {
+    const size_t availableForWrite_ = cnDevice.availableForWrite();
+    if (availableForWrite_ < used) {
+      log(file, line, function,
+          "WARNING: availableForWrite_=%zu < used=%zu",
+          availableForWrite_, used);
+    }
     Serial.write(buffer, used);
 #if 0
     log(file, line, function,
