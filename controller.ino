@@ -158,11 +158,11 @@ struct Runnable
   }
 };
 
+double command_args_to_double(const char * args, const char ** tail);
+
 int32_t command_args_to_i32(const char * args, const char ** tail);
 
 uint32_t command_args_to_u32(const char * args, const char ** tail);
-
-double command_args_to_ud(const char * args, const char ** tail);
 
 typedef void (*command_fn_t)(const char * args);
 
@@ -865,17 +865,11 @@ struct Buffer
   __attribute__ ((format (printf, 1, 2)));
   size_t printf(const char * format, ...) noexcept;
   size_t vprintf(const char * format, va_list argsList) noexcept;
+
+  size_t put_char(char c) noexcept;
 };
 
 } // namespace mk
-} // namespace nc
-
-namespace nc {
-namespace cli {
-
-void uart_stats(const char * args);
-
-} // namespace cli
 } // namespace nc
 
 void i2c_adc_config(const char * args);
@@ -1407,12 +1401,15 @@ static constexpr size_t echo_buffer_size = 4096;
 
 static constexpr size_t uart_stats_buffer_size = 4096;
 
+static constexpr size_t uart_test_buffer_size = 4096;
+
 namespace nc {
 
 typedef union shared_buffers_u
 {
   char echo_buffer[echo_buffer_size];
   char uart_stats_buffer[uart_stats_buffer_size];
+  char uart_test_buffer[uart_test_buffer_size];
 } shared_buffers_t;
 
 extern shared_buffers_t shared_buffers;
@@ -1784,6 +1781,22 @@ void test_dump(const char * args);
 void test_run(const char * args);
 
 void test_state(const char * args);
+
+namespace nc {
+namespace cli {
+
+void uart_stats(const char * args);
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
+void uart_test(const char * args);
+
+} // namespace cli
+} // namespace nc
 
 void uart_stats_report();
 
@@ -2208,15 +2221,26 @@ size_t Buffer::printf(const char* format, ...) noexcept
 } // namespace nc
 
 namespace nc {
-namespace cli {
+namespace mk {
 
-void uart_stats(const char * args)
+size_t Buffer::put_char(char c) noexcept
 {
-  (void) args;
-  uart_stats_report();
+  if (size_ > used_) {
+    char * data = &data_[used_];
+    size_t free = size_ - used_;
+    if (free > 1) {
+      data[0] = c;
+      data[1] = '\0';
+    } else {
+      data[0] = '\0';
+    }
+  }
+  size_t used = 1;
+  used_ += used;
+  return used;
 }
 
-} // namespace cli
+} // namespace mk
 } // namespace nc
 
 const char CMD_IDENTIFY[] = "*IDN?";
@@ -2227,13 +2251,40 @@ void stats(const char * args)
   ::rpi::reportStats();
 }
 
+double command_args_to_double(const char * args, const char ** tail)
+{
+  double v;
+  char * endptr = NULL;
+
+  args = skip_whitespace(args);
+  if (!args || !*args) {
+    v = 0;
+  } else {
+    v = strtod(args, &endptr);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (endptr) {
+    endptr = skip_whitespace(endptr);
+  }
+  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
+
+  if (tail) {
+    *tail = endptr;
+  } else if (endptr && *endptr) {
+    LOG("ignoring '%s'", endptr);
+  }
+
+  return v;
+}
+
 int32_t command_args_to_i32(const char * args, const char ** tail)
 {
   unsigned v;
   char * endptr = NULL;
 
   args = skip_whitespace(args);
-  if (!*args) {
+  if (!args || !*args) {
     v = 0;
   } else {
     v = strtol(args, &endptr, 0);
@@ -2256,41 +2307,15 @@ int32_t command_args_to_i32(const char * args, const char ** tail)
 
 uint32_t command_args_to_u32(const char * args, const char ** tail)
 {
+  //LOG("arg=%p/'%s'", args, args ? args : "");
   unsigned v;
   char * endptr = NULL;
 
   args = skip_whitespace(args);
-  if (!*args) {
+  if (!args || !*args) {
     v = 0;
   } else {
     v = strtoul(args, &endptr, 0);
-  }
-  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
-
-  if (endptr) {
-    endptr = skip_whitespace(endptr);
-  }
-  //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
-
-  if (tail) {
-    *tail = endptr;
-  } else if (endptr && *endptr) {
-    LOG("ignoring '%s'", endptr);
-  }
-
-  return v;
-}
-
-double command_args_to_ud(const char * args, const char ** tail)
-{
-  double v;
-  char * endptr = NULL;
-
-  args = skip_whitespace(args);
-  if (!*args) {
-    v = 0;
-  } else {
-    v = strtod(args, &endptr);
   }
   //LOG(". . endptr=%p='%s'", endptr, endptr ? endptr : "<nullptr>");
 
@@ -2396,6 +2421,7 @@ static const commands_map_t commands_map[] = {
   COMMAND(monitor_T),
 
   COMMAND(uart_stats),
+  COMMAND(uart_test),
 #undef COMMAND
 };
 
@@ -4220,6 +4246,8 @@ shared_buffers_t shared_buffers;
 const char * skip_whitespace(const char * p)
 {
   //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  if (!p) { return p; }
+
   while (' ' == *p || '\t' == *p) {
     ++p;
     //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
@@ -4231,6 +4259,8 @@ const char * skip_whitespace(const char * p)
 char * skip_whitespace(char * p)
 {
   //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
+  if (!p) { return p; }
+
   while (' ' == *p || '\t' == *p) {
     ++p;
     //LOG("p=%p 0x%02X", p, (p) ? *p : 0);
@@ -5531,6 +5561,140 @@ void Test::dump() const
       state_, to_string(state_));
 }
 
+namespace nc {
+namespace cli {
+
+void uart_stats(const char * args)
+{
+  (void) args;
+  uart_stats_report();
+}
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
+void uart_test(const char * args)
+{
+  const char * tail = args;
+  //LOG("tail=%p/'%s'", tail, tail ? tail : "");
+  //cnDevice.uartConfig_->finish_output();
+  unsigned count = command_args_to_u32(tail, &tail);
+  unsigned width = command_args_to_u32(tail, nullptr);
+  LOG("count=%u width=%u", count, width);
+  //cnDevice.uartConfig_->finish_output();
+
+  uint64_t time_12_us_min = uint64_t(-1);
+  uint64_t time_23_us_min = uint64_t(-1);
+  uint64_t time_13_us_min = uint64_t(-1);
+
+  uint64_t time_12_us_max = 0;
+  uint64_t time_23_us_max = 0;
+  uint64_t time_13_us_max = 0;
+
+  uint64_t time_0_us = esp_timer_get_time();
+  static constexpr uint64_t el_period_us = 600000;
+  uint64_t el_time_us = time_0_us + el_period_us;
+
+  for (unsigned step = 0; step < count; ++step) {
+    uint64_t time_1_us = esp_timer_get_time();
+
+    auto & buffer = ::nc::shared_buffers.uart_test_buffer;
+    size_t buffer_size = sizeof(buffer);
+    ::nc::mk::Buffer b(buffer, buffer_size);
+
+    const auto time_us = time_1_us - time_0_us;
+    b.printf("/UART/TEST %5u %6" PRIu64 ".%06u ", step, time_us / 1000000, unsigned(time_us % 1000000));
+
+    static const char chars[] =
+        ".0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    for (unsigned i = 0; i < width; ++i) {
+#if 1
+      b.put_char(chars[i % (sizeof(chars) - 1)]);
+#else
+      b.printf("%c", chars[i % (sizeof(chars) - 1)]);
+#endif
+    }
+
+    b.printf("|");
+    b.printf("\n");
+    uint64_t time_2_us = esp_timer_get_time();
+
+    size_t tx_available_1 = cnDevice.availableForWrite();
+    SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
+    size_t tx_available_2 = cnDevice.availableForWrite();
+    //cnDevice.uartConfig_->finish_output();
+
+    uint64_t time_3_us = esp_timer_get_time();
+
+    LOG("tx_available_1=%zu tx_available_2=%zu", tx_available_1, tx_available_2);
+
+    uint64_t time_12_us = time_2_us - time_1_us;
+    uint64_t time_23_us = time_3_us - time_2_us;
+    uint64_t time_13_us = time_3_us - time_1_us;
+    LOG("time %" PRIu64 " %" PRIu64 " %" PRIu64, time_12_us, time_23_us, time_13_us);
+    //cnDevice.uartConfig_->finish_output();
+
+    if (time_12_us_min > time_12_us) { time_12_us_min = time_12_us; }
+    if (time_23_us_min > time_23_us) { time_23_us_min = time_23_us; }
+    if (time_13_us_min > time_13_us) { time_13_us_min = time_13_us; }
+
+    if (time_12_us_max < time_12_us) { time_12_us_max = time_12_us; }
+    if (time_23_us_max < time_23_us) { time_23_us_max = time_23_us; }
+    if (time_13_us_max < time_13_us) { time_13_us_max = time_13_us; }
+
+    if (el_time_us < time_3_us) {
+      el_id(nullptr);
+      el_time_us = time_3_us + el_period_us;
+    }
+    elDevice.on_loop(time_3_us / 1000);
+  }
+  LOG("time min %" PRIi64 " %" PRIi64 " %" PRIi64, time_12_us_min, time_23_us_min, time_13_us_min);
+  LOG("time max %" PRIi64 " %" PRIi64 " %" PRIi64, time_12_us_max, time_23_us_max, time_13_us_max);
+
+  uart_stats_report();
+}
+
+} // namespace cli
+} // namespace nc
+
+void uart_stats_report()
+{
+  auto & buffer = ::nc::shared_buffers.uart_stats_buffer;
+  size_t buffer_size = sizeof(buffer);
+
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/STATS/UART rx{available.max/FIFO/BUFFER/PARITY/FRAME} tx{available.{min/max}}");
+
+  static const struct {
+    const char * const tag;
+    const UartDevice * const uartDevice;
+  } uartDevices[] = {
+    { "cn", &cnDevice, },
+    { "ps", &psDevice, },
+    { "el", &elDevice, },
+  };;
+  for (unsigned i = 0; i < ARRAY_SIZE(uartDevices); ++i) {
+    b.printf(" %s %zi/%u/%u/%u/%u %zi/%zi", uartDevices[i].tag,
+      uartDevices[i].uartDevice->stats_.availableForRead_max_,
+      uartDevices[i].uartDevice->stats_.UART_FIFO_OVF_ERROR_,
+      uartDevices[i].uartDevice->stats_.UART_BUFFER_FULL_,
+      uartDevices[i].uartDevice->stats_.UART_PARITY_ERROR_,
+      uartDevices[i].uartDevice->stats_.UART_FRAME_ERROR_,
+      uartDevices[i].uartDevice->stats_.availableForWrite_min_,
+      uartDevices[i].uartDevice->stats_.availableForWrite_max_
+    );
+  }
+
+  b.printf("\n");
+
+  const auto need = b.need();
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
+}
+
 const UartConfig cn_uartConfig = {
   .tag =  "CN-u" MAKE_STRING(CN_UART_NUM),
   .hs = &Serial,
@@ -5586,41 +5750,6 @@ void xx_uartConfigs_init() {
   for (unsigned i = 0; i < ARRAY_SIZE(xx_uartConfigs); ++i) {
     xx_uartConfigs[i]->init();
   }
-}
-
-void uart_stats_report()
-{
-  auto & buffer = ::nc::shared_buffers.uart_stats_buffer;
-  size_t buffer_size = sizeof(buffer);
-
-  ::nc::mk::Buffer b(buffer, buffer_size);
-
-  b.printf("/STATS/UART rx{available.max/FIFO/BUFFER/PARITY/FRAME} tx{available.{min/max}}");
-
-  static const struct {
-    const char * const tag;
-    const UartDevice * const uartDevice;
-  } uartDevices[] = {
-    { "cn", &cnDevice, },
-    { "ps", &psDevice, },
-    { "el", &elDevice, },
-  };;
-  for (unsigned i = 0; i < ARRAY_SIZE(uartDevices); ++i) {
-    b.printf(" %s %zi/%u/%u/%u/%u %zi/%zi", uartDevices[i].tag,
-      uartDevices[i].uartDevice->stats_.availableForRead_max_,
-      uartDevices[i].uartDevice->stats_.UART_FIFO_OVF_ERROR_,
-      uartDevices[i].uartDevice->stats_.UART_BUFFER_FULL_,
-      uartDevices[i].uartDevice->stats_.UART_PARITY_ERROR_,
-      uartDevices[i].uartDevice->stats_.UART_FRAME_ERROR_,
-      uartDevices[i].uartDevice->stats_.availableForWrite_min_,
-      uartDevices[i].uartDevice->stats_.availableForWrite_max_
-    );
-  }
-
-  b.printf("\n");
-
-  const auto need = b.need();
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
 }
 
 // TODO: Use 'enum class' instead of 'unsigned'

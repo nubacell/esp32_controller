@@ -87,6 +87,7 @@ static const commands_map_t commands_map[] = {
   COMMAND(monitor_T),
 
   COMMAND(uart_stats),
+  COMMAND(uart_test),
 #undef COMMAND
 };
 

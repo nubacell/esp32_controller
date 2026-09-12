@@ -1,11 +1,11 @@
 
-double command_args_to_ud(const char * args, const char ** tail)
+double command_args_to_double(const char * args, const char ** tail)
 {
   double v;
   char * endptr = NULL;
 
   args = skip_whitespace(args);
-  if (!*args) {
+  if (!args || !*args) {
     v = 0;
   } else {
     v = strtod(args, &endptr);

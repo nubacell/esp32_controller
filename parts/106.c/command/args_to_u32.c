@@ -1,11 +1,12 @@
 
 uint32_t command_args_to_u32(const char * args, const char ** tail)
 {
+  //LOG("arg=%p/'%s'", args, args ? args : "");
   unsigned v;
   char * endptr = NULL;
 
   args = skip_whitespace(args);
-  if (!*args) {
+  if (!args || !*args) {
     v = 0;
   } else {
     v = strtoul(args, &endptr, 0);

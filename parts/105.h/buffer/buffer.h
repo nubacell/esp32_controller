@@ -28,6 +28,8 @@ struct Buffer
   __attribute__ ((format (printf, 1, 2)));
   size_t printf(const char * format, ...) noexcept;
   size_t vprintf(const char * format, va_list argsList) noexcept;
+
+  size_t put_char(char c) noexcept;
 };
 
 } // namespace mk

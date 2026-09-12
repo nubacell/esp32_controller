@@ -5,7 +5,7 @@ int32_t command_args_to_i32(const char * args, const char ** tail)
   char * endptr = NULL;
 
   args = skip_whitespace(args);
-  if (!*args) {
+  if (!args || !*args) {
     v = 0;
   } else {
     v = strtol(args, &endptr, 0);
