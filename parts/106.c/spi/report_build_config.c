@@ -1,5 +1,8 @@
 
-void spi_report_config()
+namespace nc {
+namespace spi {
+
+void report_build_config()
 {
   LOG(". %s=%u", "SPI_GPIO_MISO", SPI_GPIO_MISO);
   LOG(". %s=%u", "SPI_GPIO_MOSI", SPI_GPIO_MOSI);
@@ -13,5 +16,7 @@ void spi_report_config()
   LOG(". %s=%u", "SPI_BUFFER_SIZE", SPI_BUFFER_SIZE);
   LOG(". %s=%u", "SPI_DATA_SIZE", SPI_DATA_SIZE);
   LOG(". %s=%u", "SPI_RX_BITS_MIN", SPI_RX_BITS_MIN);
-  LOG(". %s=%u", "sizeof(::nc::spi::buffers::rx)", sizeof(::nc::spi::buffers::rx));
 }
+
+} // namespace spi
+} // namespace nc

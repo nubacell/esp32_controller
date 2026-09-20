@@ -11,6 +11,4 @@ void command_echo(const char * args)
 
   const auto need = b.need();
   SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
-
-  //uart_stats_report();
 }

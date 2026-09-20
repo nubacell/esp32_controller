@@ -1,0 +1,25 @@
+
+spi
+  hw
+    chip
+      config
+        bus
+        slave_interface
+      pins
+
+  mr
+    mux
+      pins
+
+  sensors
+    stats
+    offline[]
+    sensor[]
+      data
+      raw
+        buffers -- last raw data
+          rx
+          tx
+        data_available = !transfer_failed
+        rx_bits
+        crc_valid

@@ -1,2 +1,0 @@
-
-SPI_Device spiDevice;

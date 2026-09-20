@@ -1,0 +1,25 @@
+
+namespace nc {
+namespace spi {
+
+void Sensors::on_loop(uint32_t now_ms)
+{
+  switch (state_) {
+#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
+    CASE_CALL(init)
+    CASE_CALL(init_failed)
+    CASE_CALL(idle)
+    CASE_CALL(transfer_init)
+    CASE_CALL(transfer_wait)
+    CASE_CALL(transfer_timeout)
+    CASE_CALL(next_sensor)
+    CASE_CALL(run_finished)
+#undef CASE_CALL
+    default:
+      LOG("ERROR: Unexpected state=%u/'%s'", state_, to_string(state_));
+      break;
+  }
+}
+
+} // namespace spi
+} // namespace nc

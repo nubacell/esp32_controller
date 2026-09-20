@@ -33,7 +33,7 @@ void reportStats()
   iMeter.reportStats(b);
 
   b.printf(" spi");
-  ::nc::spi::sensors::reportStats(b);
+  b << ::nc::spi::sensors.stats;
 
   b.printf("\n");
 

@@ -105,6 +105,85 @@ void stack_marker_fill(uint32_t * addr, size_t size, uint8_t fill);
 
 extern const char device_tag[];
 
+/*
+    There is little dirty trick.
+
+    Normally 'used <= size'. However 'used > size' is permitted and means
+    [logical] 'overflow' with excessive data lost.
+*/
+
+namespace nc {
+namespace mk {
+
+struct Buffer
+{
+  char * data_;
+  size_t size_;
+  size_t used_;
+
+  Buffer(char * data, size_t size) noexcept
+    : data_(data)
+    , size_(size)
+    , used_(0)
+  {
+  }
+
+  size_t used() const noexcept { return std::min(used_, size_); }
+  size_t need() const noexcept { return used_; }
+
+  __attribute__ ((format (printf, 1, 2)));
+  size_t printf(const char * format, ...) noexcept;
+  size_t vprintf(const char * format, va_list argsList) noexcept;
+
+  size_t put_char(char c) noexcept;
+  size_t put(const char * data, size_t size) noexcept;
+  size_t put_s(const char * s) noexcept;
+
+  inline
+  Buffer & operator<<(char c) noexcept
+  {
+    put_char(c);
+    return *this;
+  }
+
+  inline
+  Buffer & operator<<(const char * s) noexcept
+  {
+    put_s(s);
+    return *this;
+  }
+
+  size_t put(uint64_t v) noexcept;
+  size_t put(int64_t v) noexcept;
+  size_t put(uint32_t v) noexcept;
+  size_t put(int32_t v) noexcept;
+
+  inline size_t put(uint16_t v) noexcept { return put(uint32_t(v)); }
+  inline size_t put(int16_t v) noexcept { return put(int32_t(v)); }
+  inline size_t put(uint8_t v) noexcept { return put(uint32_t(v)); }
+  inline size_t put(int8_t v) noexcept { return put(int32_t(v)); }
+
+  inline size_t put(unsigned v) noexcept { return put(uint32_t(v)); }
+  inline size_t put(signed v) noexcept { return put(int32_t(v)); }
+
+#if 1
+  template <typename T>
+  inline Buffer & operator<<(T v) noexcept { put(v); return *this; }
+#else
+  inline Buffer & operator<<(uint64_t v) noexcept { put(v); return *this; }
+  inline Buffer & operator<<(uint32_t v) noexcept { put(v); return *this; }
+  inline Buffer & operator<<(uint16_t v) noexcept { put(v); return *this; }
+  inline Buffer & operator<<(int16_t v) noexcept { put(v); return *this; }
+  inline Buffer & operator<<(uint8_t v) noexcept { put(v); return *this; }
+
+  inline Buffer & operator<<(unsigned v) noexcept { put(v); return *this; }
+  inline Buffer & operator<<(signed v) noexcept { put(v); return *this; }
+#endif
+};
+
+} // namespace mk
+} // namespace nc
+
 extern const char CMD_IDENTIFY[];
 #pragma once
 
@@ -147,8 +226,39 @@ int sign(int v)
   return (v < int(0)) ? -1 : (v > int(0)) ? +1 : 0;
 }
 
-const char * skip_whitespace(const char * p);
-char * skip_whitespace(char * p);
+namespace nc {
+namespace mk {
+namespace cvt {
+
+// Assuming 'base' is 2, 8, 10, or 16.
+size_t
+uint32_to_ascii(
+    char * buffer,
+    size_t buffer_size,
+    uint32_t number,
+    uint8_t base,
+    bool upperCase);
+
+} // namespace cvt
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
+namespace cvt {
+
+// Assuming 'base' is 2, 8, 10, or 16.
+size_t
+uint64_to_ascii(
+    char * buffer,
+    size_t buffer_size,
+    uint64_t number,
+    uint8_t base,
+    bool upperCase);
+
+} // namespace cvt
+} // namespace mk
+} // namespace nc
 
 struct Runnable
 {
@@ -157,6 +267,105 @@ struct Runnable
     LOG("");
   }
 };
+
+namespace nc {
+namespace stats {
+
+using counter_t = uint64_t;
+
+} // namespace stats
+} // namespace nc
+
+namespace nc {
+namespace stats {
+
+struct OkNg
+{
+  counter_t counter_[2];
+
+  static constexpr const char * const tags[] = {
+    "ok",
+    "ng",
+  };
+
+  // 0 OK
+  // 1 NG
+  inline
+  size_t index_(bool ok) const noexcept
+  {
+    return !ok;
+  }
+
+  inline
+  const counter_t & counter(bool ok) const noexcept
+  {
+    return counter_[index_(ok)];
+  }
+
+  inline
+  counter_t & counter(bool ok) noexcept
+  {
+    return counter_[index_(ok)];
+  }
+
+  inline
+  const counter_t & ok() const noexcept
+  {
+    return counter(true);
+  }
+
+  inline
+  counter_t & ok() noexcept
+  {
+    return counter(true);
+  }
+
+  inline
+  const counter_t & ng() const noexcept
+  {
+    return counter(false);
+  }
+
+  inline
+  counter_t & ng() noexcept
+  {
+    return counter(false);
+  }
+
+  inline
+  const counter_t & operator[](bool ok) const noexcept
+  {
+    return counter(ok);
+  }
+
+  inline
+  counter_t & operator[](bool ok) noexcept
+  {
+    return counter(ok);
+  }
+
+  inline
+  void inc(bool ok) noexcept
+  {
+    ++counter(ok);
+  }
+
+  ::nc::mk::Buffer &
+  to_buffer(::nc::mk::Buffer & b) const noexcept;
+};
+
+} // namespace stats
+} // namespace nc
+
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::stats::OkNg & okNg) noexcept
+{
+  return okNg.to_buffer(b);
+}
 
 double command_args_to_double(const char * args, const char ** tail);
 
@@ -836,42 +1045,6 @@ struct EL_Device
 
 extern EL_Device elDevice;
 
-/*
-    There is little dirty trick.
-
-    Normally 'used <= size'. However 'used > size' is permitted and means
-    [logical] 'overflow' with excessive data lost.
-*/
-
-namespace nc {
-namespace mk {
-
-struct Buffer
-{
-  char * data_;
-  size_t size_;
-  size_t used_;
-
-  Buffer(char * data, size_t size) noexcept
-    : data_(data)
-    , size_(size)
-    , used_(0)
-  {
-  }
-
-  size_t used() const noexcept { return std::min(used_, size_); }
-  size_t need() const noexcept { return used_; }
-
-  __attribute__ ((format (printf, 1, 2)));
-  size_t printf(const char * format, ...) noexcept;
-  size_t vprintf(const char * format, va_list argsList) noexcept;
-
-  size_t put_char(char c) noexcept;
-};
-
-} // namespace mk
-} // namespace nc
-
 void i2c_adc_config(const char * args);
 
 void i2c_adc_read(const char * args);
@@ -1181,6 +1354,99 @@ struct I_Meter
 
 extern I_Meter iMeter;
 
+namespace nc {
+namespace lgt {
+
+using VCC = uint16_t;
+
+using Voltage = int16_t;
+::nc::mk::Buffer & to_buffer(::nc::mk::Buffer & b, const Voltage voltage);
+
+static constexpr const unsigned voltage_pins_COUNT = 4;
+using Voltages = Voltage[voltage_pins_COUNT];
+::nc::mk::Buffer & to_buffer(::nc::mk::Buffer & b, const ::nc::lgt::Voltages & voltages);
+
+using Temperature = uint16_t;
+::nc::mk::Buffer & to_buffer(::nc::mk::Buffer & b, const Temperature temperature);
+
+static constexpr const unsigned temperature_pins_COUNT = 4;
+static constexpr const unsigned temperature_groups_COUNT = 2;
+using Temperatures = Temperature[temperature_pins_COUNT][temperature_groups_COUNT];
+::nc::mk::Buffer & to_buffer(::nc::mk::Buffer & b, const ::nc::lgt::Temperatures & temperatures);
+
+static constexpr const unsigned ALL_ANALOG_SIGNALS_COUNT =
+    voltage_pins_COUNT + temperature_pins_COUNT * temperature_groups_COUNT;
+using AllAnalogSignals = int16_t[ALL_ANALOG_SIGNALS_COUNT];
+
+union AnalogSignals
+{
+  struct
+  {
+    Voltages voltages;
+    Temperatures temperatures;
+  };
+  AllAnalogSignals all;
+
+  ::nc::mk::Buffer & to_buffer(::nc::mk::Buffer & b) const noexcept;
+};
+
+struct SensorData
+{
+  uint8_t format; // data format version number, 1 for now
+  uint8_t device_id;
+  AnalogSignals analogSignals;
+  VCC vcc;
+  uint8_t crc;
+
+  ::nc::mk::Buffer & to_buffer(::nc::mk::Buffer & b) const noexcept;
+};
+
+} // namespace lgt
+} // namespace nc
+
+/*
+    sizeof(SensorData) on
+      LGT8F  21
+      ESP32  22 one extra byte is added after crc
+*/
+#define LGT8F_SPI_DATA_SIZE OFFSET_OF_END(::nc::lgt::SensorData, crc)
+
+static
+inline
+::nc::mk::Buffer & operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::lgt::Voltages & voltages)
+{
+  return ::nc::lgt::to_buffer(b, voltages);
+}
+
+static
+inline
+::nc::mk::Buffer & operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::lgt::Temperatures & temperatures)
+{
+  return ::nc::lgt::to_buffer(b, temperatures);
+}
+
+static
+inline
+::nc::mk::Buffer & operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::lgt::AnalogSignals & analogSignals)
+{
+  return analogSignals.to_buffer(b);
+}
+
+static
+inline
+::nc::mk::Buffer & operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::lgt::SensorData & sensorData)
+{
+  return sensorData.to_buffer(b);
+}
+
 void stats_disable(const char * args);
 
 void stats_enable(const char * args);
@@ -1399,6 +1665,12 @@ void serial_write_buffer(
 
 static constexpr size_t echo_buffer_size = 4096;
 
+static constexpr size_t spi_data_buffer_size = 4096;
+
+static constexpr size_t spi_raw_data_buffer_size = 4096;
+
+static constexpr size_t spi_stats_buffer_size = 4096;
+
 static constexpr size_t uart_stats_buffer_size = 4096;
 
 static constexpr size_t uart_test_buffer_size = 4096;
@@ -1408,6 +1680,9 @@ namespace nc {
 typedef union shared_buffers_u
 {
   char echo_buffer[echo_buffer_size];
+  char spi_data_buffer[spi_data_buffer_size];
+  char spi_raw_data_buffer[spi_raw_data_buffer_size];
+  char spi_stats_buffer[spi_stats_buffer_size];
   char uart_stats_buffer[uart_stats_buffer_size];
   char uart_test_buffer[uart_test_buffer_size];
 } shared_buffers_t;
@@ -1415,6 +1690,9 @@ typedef union shared_buffers_u
 extern shared_buffers_t shared_buffers;
 
 } // namespace nc
+
+const char * skip_whitespace(const char * p);
+char * skip_whitespace(char * p);
 
 #define SPI_BUFFER_SIZE_MAX 64
 #define SPI_BUFFER_SIZE SPI_BUFFER_SIZE_MAX
@@ -1434,138 +1712,80 @@ extern shared_buffers_t shared_buffers;
 
 #define SPI_SENSORS_COUNT 8
 
-#define voltage_pins_count 4
-#define temperature_pins_count 4
-#define temperature_groups_count 2
-
-typedef int16_t AnalogSignal_t;
-#define ANALOG_SIGNALS_COUNT 12
-typedef union AnalogSignals_u {
-  struct {
-    AnalogSignal_t voltage[voltage_pins_count];
-    AnalogSignal_t temperature[temperature_pins_count][temperature_groups_count];
-  };
-  AnalogSignal_t all[ANALOG_SIGNALS_COUNT];
-} AnalogSignals_t;
-
-typedef uint16_t VCC_t;
-
-typedef struct SensorDeviceData_s {
-  uint8_t format; // data format version number, 1 for now
-  uint8_t device_id;
-  AnalogSignals_t analogSignals;
-  VCC_t vcc;
-  uint8_t crc;
-} SensorDeviceData_t;
-/*
-    sizeof(SensorDeviceData_t) on
-      LGT8F  21
-      ESP32  22 one extra byte is added after crc
-*/
-#define LGT8F_SPI_DATA_SIZE OFFSET_OF_END(SensorDeviceData_t, crc)
+#define SPI_RX_BITS_MIN (SPI_DATA_SIZE * 8)
 
 namespace nc {
-namespace spi {
-namespace buffers {
-
-extern byte tx[SPI_SENSORS_COUNT][SPI_BUFFER_SIZE];
-extern byte rx[SPI_SENSORS_COUNT][SPI_BUFFER_SIZE];
-
-} // namespace buffers
-} // namespace spi
-} // namespace nc
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-uint8_t crc(const SensorDeviceData_t * sensorDeviceData);
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-bool crc_valid(const SensorDeviceData_t * sensorDeviceData);
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-inline SensorDeviceData_t * deviceData(unsigned sensor_n)
-{
-  return (SensorDeviceData_t*) (&::nc::spi::buffers::rx[sensor_n][0]);
-}
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-extern bool offline_[SPI_SENSORS_COUNT];
-
-uint8_t skip_offline(uint8_t spi_sensor_n);
-
-void config(uint32_t v);
-void config_dump();
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-struct Stats
-{
-  unsigned rx_bits_ok;
-  unsigned rx_bits_ng;
-  unsigned crc_ok;
-  unsigned crc_ng;
-} stats_[SPI_SENSORS_COUNT];
-
-void reportStats();
-void reportStats(::nc::mk::Buffer & b);
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-extern bool crc_valid_[SPI_SENSORS_COUNT];
-extern bool valid_[SPI_SENSORS_COUNT];
-extern bool valid_all_;
-
-void validate();
-
-void crc_valid_dump();
-void valid_dump();
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
+namespace cli {
 
 void spi_config(const char * args);
 
-void spi_report_config();
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
+void spi_data(const char * args);
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
+void spi_data_raw(const char * args);
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
+void spi_dump(const char * args);
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
 
 void spi_run(const char * args);
 
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
 void spi_stats(const char * args);
+
+} // namespace cli
+} // namespace nc
+
+extern const spi_bus_config_t spi_bus_config;
+
+extern bool spi_chip_active_;
+
+bool spi_chip_down();
+
+bool spi_chip_init();
+
+namespace nc {
+namespace spi {
+namespace hw {
+
+struct Chip
+{
+  bool active_ = false;
+  bool init();
+  void down();
+};
+
+} // namespace hw
+} // namespace spi
+} // namespace nc
+
+extern const uint8_t spi_pins[];
 
 // Called after SPI is configured for 'transaction'.
 // Can be used to activate 'Master Request' (MR).
@@ -1576,21 +1796,14 @@ void spi_post_setup_cb(spi_slave_transaction_t * transaction);
 // Can be used to mark end of multiple transfers.
 void spi_post_trans_cb(spi_slave_transaction_t * transaction);
 
-bool spi_transfer_start(uint8_t spi_sensor_n);
-
-
-extern unsigned spi_post_setup_cb_count_;
 extern unsigned spi_post_trans_cb_count_;
 
-bool spi_chip_init();
-
-extern uint8_t spi_sensor_n_;
-
-extern const spi_bus_config_t spi_bus_config;
-
-extern const uint8_t spi_pins[];
-
 extern const spi_slave_interface_config_t spi_slave_interface_config;
+
+// state of 'single' transfer
+extern bool spi_transfer_active_;
+
+bool spi_transfer_start(uint8_t spi_sensor_n);
 
 void spi_mr_mux(unsigned spi_sensor_n);
 
@@ -1613,41 +1826,179 @@ void spi_mr_mux_pins_setup();
 
 void spi_mr_pin_setup();
 
-extern uint16_t spi_rx_bits[SPI_SENSORS_COUNT];
+void spi_pins_setup();
 
-void spi_rx_bits_reset();
+namespace nc {
+namespace spi {
 
-bool spi_rx_bits_valid();
+void report_build_config();
 
-void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i);
-void analog_report_all(const SensorDeviceData_t & deviceData);
-void SensorDevice_Data_report_one(unsigned i);
-void SensorDevices_Data_report_all();
+} // namespace spi
+} // namespace nc
 
-namespace rpi {
+void spi_report_stats();
 
-void SensorDevices_Data_report_all(
+namespace nc {
+namespace spi {
+
+struct Sensor
+{
+  struct Stats
+  {
+    ::nc::stats::OkNg transfer;
+    ::nc::stats::OkNg rx_bits;
+    ::nc::stats::OkNg crc;
+
+    static constexpr const char * const tags[] = {
+      "transfer",
+      "rx_bits",
+      "crc",
+    };
+
+    ::nc::mk::Buffer &
+    to_buffer(::nc::mk::Buffer & b) const noexcept;
+  } stats;
+
+  struct Raw
+  {
+    uint8_t tx_buffer[SPI_BUFFER_SIZE];
+    union
+    {
+      uint8_t rx_buffer[SPI_BUFFER_SIZE];
+      ::nc::lgt::SensorData data;
+    };
+
+    struct Status
+    {
+      bool transfer_done;
+      uint16_t rx_bits;
+      bool crc_valid_;
+
+      inline bool rx_bits_valid() const { return rx_bits >= SPI_RX_BITS_MIN; }
+      inline bool is_crc_valid() const { return crc_valid_; }
+
+      ::nc::mk::Buffer &
+      to_buffer(::nc::mk::Buffer & b) const noexcept;
+    } status;
+
+    uint8_t crc() const;
+    bool is_crc_valid_impl() const;
+    void update_crc_valid();
+
+    void reset();
+
+    ::nc::mk::Buffer &
+    to_buffer(::nc::mk::Buffer & b) const noexcept;
+  } raw;
+
+  ::nc::lgt::SensorData data;
+  void update_data();
+
+  ::nc::mk::Buffer &
+  to_buffer(::nc::mk::Buffer & b) const noexcept;
+};
+
+} // namespace spi
+} // namespace nc
+
+static
+inline
+::nc::mk::Buffer &
+operator<<(
     ::nc::mk::Buffer & b,
-    uint32_t now_ms,
-    uint32_t test_start_time_ms);
+    const ::nc::spi::Sensor::Stats & stats) noexcept
+{
+  return stats.to_buffer(b);
+}
 
-} // namespace rpi
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::spi::Sensor::Raw::Status & status) noexcept
+{
+  return status.to_buffer(b);
+}
 
-struct SPI_Device
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::spi::Sensor::Raw & raw) noexcept
+{
+  return raw.to_buffer(b);
+}
+
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::spi::Sensor & sensor) noexcept
+{
+  return sensor.to_buffer(b);
+}
+
+namespace nc {
+namespace spi {
+
+struct Sensors
   : Runnable
 {
+  struct Stats
+  {
+    ::nc::stats::counter_t post_setup_cb_count;
+    ::nc::stats::counter_t post_trans_cb_count;
+
+    static constexpr const char * const tags[] = {
+      "setup_cb",
+      "trans_cb",
+    };
+
+    ::nc::mk::Buffer &
+    to_buffer(::nc::mk::Buffer & b) const noexcept;
+  } stats;
+
+  ::nc::mk::Buffer &
+  stats_to_buffer(::nc::mk::Buffer & b) const noexcept;
+
   uint32_t transfer_start_time_ms_;
   uint32_t transfer_end_time_ms_;
+  static constexpr uint32_t single_transfer_timeout_ms = 5;
   uint32_t timeout_time_ms_;
 
-  bool run_ = false;
+  Sensor sensors_[SPI_SENSORS_COUNT];
+
+  struct HW
+  {
+    ::nc::spi::hw::Chip chip_;
+    //static
+    spi_slave_transaction_t transaction_;
+    bool active_;
+    uint16_t rx_bits() const { return transaction_.trans_len; }
+  } hw;
+  bool hw_transfer_start();
+
+  uint8_t sensor_n_;
+
+  bool offline_[SPI_SENSORS_COUNT];
+  void offline_config(uint32_t v);
+  void offline_config_dump() const;
+
+  void skip_offline();
+  inline bool offline(unsigned sensor_n) const { return offline_[sensor_n]; }
 
   enum class State : uint8_t {
     init,
-    init_failed,
+    init_failed, // can be used to retry init after some delay
     idle,
-    running,
-    run_failed,
+    transfer_init,
+    transfer_wait,
+    transfer_timeout,
+    next_sensor,
+    run_finished,
   };
   State state_ = State::init;
   static const char * to_string(State state);
@@ -1656,29 +2007,62 @@ struct SPI_Device
   void on_state_init(uint32_t now_ms);
   void on_state_init_failed(uint32_t now_ms);
   void on_state_idle(uint32_t now_ms);
-  void on_state_running(uint32_t now_ms);
-  void on_state_run_failed(uint32_t now_ms);
+  void on_state_transfer_init(uint32_t now_ms);
+  void on_state_transfer_wait(uint32_t now_ms);
+  void on_state_transfer_timeout(uint32_t now_ms);
+  void on_state_next_sensor(uint32_t now_ms);
+  void on_state_run_finished(uint32_t now_ms);
 
   void on_loop(uint32_t now_ms) override;
 
-  void run()
-  {
-    run_ = true;
-  }
+  bool run_ = false;
+  inline void run() { run_ = true; }
+  bool run_finished_ = false;
+  inline bool run_finished() const { return run_finished_; }
 
-  bool isTransferFinished() { return State::idle == state_; }
-  bool areSensorsDataValid() { return ::nc::spi::sensors::valid_all_; }
+  ::nc::mk::Buffer &
+  to_buffer(::nc::mk::Buffer & b) const noexcept;
 };
 
-extern SPI_Device spiDevice;
+extern Sensors sensors;
 
-void spi_pins_setup();
+} // namespace spi
+} // namespace nc
 
-void spi_report_stats();
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::spi::Sensors::Stats & stats) noexcept
+{
+  return stats.to_buffer(b);
+}
 
-#define SPI_RX_BITS_MIN (SPI_DATA_SIZE * 8)
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const ::nc::spi::Sensors & sensors) noexcept
+{
+  return sensors.to_buffer(b);
+}
 
 void spi_setup();
+
+void analog_report_one(const ::nc::lgt::SensorData & sensorData, unsigned i);
+void analog_report_all(const ::nc::lgt::SensorData & sensorData);
+void SensorDevice_Data_report_one(unsigned i);
+void spi_report_data();
+
+void test_abort(const char * args);
+
+void test_dump(const char * args);
+
+void test_run(const char * args);
+
+void test_state(const char * args);
 
 struct Test
   : Runnable
@@ -1773,14 +2157,6 @@ struct Test
 };
 
 extern Test test;
-
-void test_abort(const char * args);
-
-void test_dump(const char * args);
-
-void test_run(const char * args);
-
-void test_state(const char * args);
 
 namespace nc {
 namespace cli {
@@ -2190,23 +2566,92 @@ size_t safe_snprintf(char * buffer, size_t size, const char * format, ...)
 
 namespace nc {
 namespace mk {
+namespace cvt {
 
-size_t Buffer::vprintf(const char * format, va_list argsList) noexcept
+// Assuming 'base' is 2, 8, 10, or 16.
+size_t
+uint32_to_ascii(
+    char * buffer,
+    size_t buffer_size,
+    uint32_t number,
+    uint8_t base,
+    bool upperCase)
 {
-  char * data;
-  size_t free;
-  char buffer[1];
-  if (size_ > used_) {
-    data = &data_[used_];
-    free = size_ - used_;
-  } else {
-    data = buffer;
-    free = sizeof(buffer);
+  size_t buffer_index = 0;
+  if (!number)
+  {
+    if (buffer_index < buffer_size) { buffer[buffer_index] = '0'; }
+    ++buffer_index;
   }
-  size_t used = safe_vsnprintf(data, free, format, argsList);
-  used_ += used;
-  return used;
+  else
+  {
+    uint8_t digits[sizeof(number)*8];
+    size_t digitIndex = 0;
+    while (number)
+    {
+      digits[digitIndex++] = number % base;
+      number /= base;
+    }
+    while (digitIndex)
+    {
+      uint8_t digit = digits[--digitIndex];
+      digit += (digit < 10) ? '0' : upperCase ? ('A' - 10) : ('a' - 10);
+      if (buffer_index < buffer_size) { buffer[buffer_index] = digit;}
+      ++buffer_index;
+    }
+  }
+  return buffer_index;
 }
+
+} // namespace cvt
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
+namespace cvt {
+
+// Assuming 'base' is 2, 8, 10, or 16.
+size_t
+uint64_to_ascii(
+    char * buffer,
+    size_t buffer_size,
+    uint64_t number,
+    uint8_t base,
+    bool upperCase)
+{
+  size_t buffer_index = 0;
+  if (!number)
+  {
+    if (buffer_index < buffer_size) { buffer[buffer_index] = '0'; }
+    ++buffer_index;
+  }
+  else
+  {
+    uint8_t digits[sizeof(number)*8];
+    size_t digitIndex = 0;
+    while (number)
+    {
+      digits[digitIndex++] = number % base;
+      number /= base;
+    }
+    while (digitIndex)
+    {
+      uint8_t digit = digits[--digitIndex];
+      digit += (digit < 10) ? '0' : upperCase ? ('A' - 10) : ('a' - 10);
+      if (buffer_index < buffer_size) { buffer[buffer_index] = digit;}
+      ++buffer_index;
+    }
+  }
+  return buffer_index;
+}
+
+} // namespace cvt
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
 
 size_t Buffer::printf(const char* format, ...) noexcept
 {
@@ -2215,6 +2660,20 @@ size_t Buffer::printf(const char* format, ...) noexcept
   size_t used = vprintf(format, argsList);
   va_end(argsList);
   return used;
+}
+
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
+
+size_t Buffer::put(const char * data, size_t size) noexcept
+{
+  for (size_t i = 0; i < size; ++i) {
+    put_char(data[i]);
+  }
+  return size;
 }
 
 } // namespace mk
@@ -2236,6 +2695,108 @@ size_t Buffer::put_char(char c) noexcept
     }
   }
   size_t used = 1;
+  used_ += used;
+  return used;
+}
+
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
+
+size_t Buffer::put(int32_t v) noexcept
+{
+  uint32_t u;
+  if (v < 0) {
+    u = -v;
+    put_char('-');
+  } else {
+    u = v;
+  }
+  return put(u);
+}
+
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
+
+size_t Buffer::put(int64_t v) noexcept
+{
+  uint64_t u;
+  if (v < 0) {
+    u = -v;
+    put_char('-');
+  } else {
+    u = v;
+  }
+  return put(u);
+}
+
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
+
+size_t Buffer::put_s(const char * s) noexcept
+{
+  if (!s) { s = "<nullptr>"; }
+  size_t used = 0;
+  for (char c = *s; c; ++s, c = *s) {
+    put_char(c);
+    ++used;
+  }
+  return used;
+}
+
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
+
+size_t Buffer::put(uint32_t v) noexcept
+{
+  char buffer[sizeof(v)*8];
+  const size_t size = ::nc::mk::cvt::uint32_to_ascii(buffer, sizeof(buffer), v, 10, false);
+  return put(buffer, size);
+}
+
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
+
+size_t Buffer::put(uint64_t v) noexcept
+{
+  char buffer[sizeof(v)*8];
+  const size_t size = ::nc::mk::cvt::uint64_to_ascii(buffer, sizeof(buffer), v, 10, false);
+  return put(buffer, size);
+}
+
+} // namespace mk
+} // namespace nc
+
+namespace nc {
+namespace mk {
+
+size_t Buffer::vprintf(const char * format, va_list argsList) noexcept
+{
+  char * data;
+  size_t free;
+  char buffer[1];
+  if (size_ > used_) {
+    data = &data_[used_];
+    free = size_ - used_;
+  } else {
+    data = buffer;
+    free = sizeof(buffer);
+  }
+  size_t used = safe_vsnprintf(data, free, format, argsList);
   used_ += used;
   return used;
 }
@@ -2375,9 +2936,12 @@ static const commands_map_t commands_map[] = {
   COMMAND(test_dump),
   COMMAND(test_state),
 
+  COMMAND(spi_config),
+  COMMAND(spi_data),
+  COMMAND(spi_data_raw),
+  COMMAND(spi_dump),
   COMMAND(spi_run),
   COMMAND(spi_stats),
-  COMMAND(spi_config),
 
   COMMAND(ps_id),
   COMMAND(ps_clear_alerts),
@@ -2481,8 +3045,6 @@ void command_echo(const char * args)
 
   const auto need = b.need();
   SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
-
-  //uart_stats_report();
 }
 
 void command_idn(const char * args)
@@ -3350,6 +3912,70 @@ void I_Meter::state(State new_state)
   //LOG("'%s' -> '%s'", old_state_name, new_state_name);
 }
 
+::nc::mk::Buffer &
+::nc::lgt::AnalogSignals::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  ::nc::lgt::to_buffer(b, voltages);
+  ::nc::lgt::to_buffer(b, temperatures);
+  return b;
+}
+
+::nc::mk::Buffer &
+::nc::lgt::SensorData::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  return b
+    //<< ' '
+    //<< device_id
+    << ' '
+    << unsigned(vcc) * 125
+    //<< ' '
+    << analogSignals;
+}
+
+#if 0
+::nc::mk::Buffer & operator<<(::nc::mk::Buffer & b,
+    const ::nc::lgt::Temperature temperature)
+{
+  return b
+    << temperature;
+}
+#endif
+
+::nc::mk::Buffer &
+::nc::lgt::to_buffer(
+    ::nc::mk::Buffer & b,
+    const ::nc::lgt::Temperatures & temperatures)
+{
+  for (unsigned t = 0; t < ::nc::lgt::temperature_pins_COUNT; ++t) {
+    for (unsigned g = 0; g < ::nc::lgt::temperature_groups_COUNT; ++g) {
+      b << ' '
+        << temperatures[t][g];
+    }
+  }
+  return b;
+}
+
+#if 0
+::nc::mk::Buffer & operator<<(::nc::mk::Buffer & b,
+    const ::nc::lgt::Voltage voltage)
+{
+  return b
+    << voltage;
+}
+#endif
+
+::nc::mk::Buffer &
+::nc::lgt::to_buffer(
+    ::nc::mk::Buffer & b,
+    const ::nc::lgt::Voltages & voltages)
+{
+  for (unsigned i = 0; i < ::nc::lgt::voltage_pins_COUNT; ++i) {
+    b << ' '
+      << voltages[i];
+  }
+  return b;
+}
+
 void stats_disable(const char * args)
 {
   (void) args;
@@ -3557,14 +4183,14 @@ static void report_V(
     unsigned spi_sensor_n,
     unsigned index)
 {
-  const auto & deviceData = *::nc::spi::sensors::deviceData(spi_sensor_n);
+  const auto & deviceData = ::nc::spi::sensors.sensors_[spi_sensor_n].raw.data;
   const auto & analogSignals = deviceData.analogSignals;
-  const auto & voltage = analogSignals.voltage;
+  const auto & voltages = analogSignals.voltages;
   Serial.print(" V");
   Serial.print(spi_sensor_n + 1);
   Serial.print(index);
   Serial.print(":");
-  Serial.print(scale_V(voltage[index]),3);
+  Serial.print(scale_V(voltages[index]),3);
 }
 
 static void report_T(
@@ -3572,27 +4198,27 @@ static void report_T(
     unsigned group,
     unsigned index)
 {
-  const auto & deviceData = *::nc::spi::sensors::deviceData(spi_sensor_n);
+  const auto & deviceData = ::nc::spi::sensors.sensors_[spi_sensor_n].raw.data;
   const auto & analogSignals = deviceData.analogSignals;
-  const auto & temperature = analogSignals.temperature;
+  const auto & temperatures = analogSignals.temperatures;
   Serial.print(" T");
   Serial.print(spi_sensor_n + 1);
   Serial.print(index);
   Serial.print(group);
   Serial.print(":");
-  Serial.print(scale_T(temperature[group][index]));
+  Serial.print(scale_T(temperatures[group][index]));
 }
 
 void Monitor::report_VT(unsigned spi_sensor_n) const
 {
   if (!disable_.V_) {
-    for (unsigned i = 0; i < voltage_pins_count; ++i) {
+    for (unsigned i = 0; i < ::nc::lgt::voltage_pins_COUNT; ++i) {
       report_V(spi_sensor_n, i);
     }
   }
 
   if (!disable_.T_) {
-    for (unsigned i = 0; i < temperature_pins_count; ++i) {
+    for (unsigned i = 0; i < ::nc::lgt::temperature_pins_COUNT; ++i) {
       report_T(spi_sensor_n, 0, i);
       report_T(spi_sensor_n, 1, i);
     }
@@ -3608,12 +4234,11 @@ void Monitor::report() const
     report_I();
   }
 
-  unsigned spi_sensor_n = 0;
-  for (;;) {
-    spi_sensor_n = ::nc::spi::sensors::skip_offline(spi_sensor_n);
-    if (spi_sensor_n >= SPI_SENSORS_COUNT) { break; }
-    report_VT(spi_sensor_n);
-    ++spi_sensor_n;
+  ;
+  for (unsigned sensor_n = 0; sensor_n < SPI_SENSORS_COUNT; ++sensor_n) {
+    if (!::nc::spi::sensors.offline(sensor_n)) {
+      report_VT(sensor_n);
+    }
   }
 
   Serial.println("");
@@ -3670,7 +4295,7 @@ void Monitor::on_state_measure_init(uint32_t now_ms)
 {
   measure_.timeout_time_ms_ = now_ms + measure_.timeout_ms;
 
-  spiDevice.run();
+  ::nc::spi::sensors.run();
   iMeter.run();
 
   state(State::measure_wait);
@@ -3685,7 +4310,7 @@ void Monitor::on_state_measure_wait(uint32_t now_ms)
   if (stop_) {
     state(State::stop);
   } else
-  if (spiDevice.isTransferFinished()
+  if (::nc::spi::sensors.run_finished()
   && iMeter.isMeasurementFinished()) {
     state(State::measure_done);
   } else
@@ -4162,7 +4787,7 @@ void ProfileStep::dump() const
 void report_config()
 {
   Serial.print("device: '"); Serial.print(device_tag); Serial.println("'");
-  spi_report_config();
+  ::nc::spi::report_build_config();
 }
 
 namespace rpi {
@@ -4199,7 +4824,7 @@ void reportStats()
   iMeter.reportStats(b);
 
   b.printf(" spi");
-  ::nc::spi::sensors::reportStats(b);
+  b << ::nc::spi::sensors.stats;
 
   b.printf("\n");
 
@@ -4269,28 +4894,128 @@ char * skip_whitespace(char * p)
   return p;
 }
 
+namespace nc {
+namespace cli {
+
 void spi_config(const char * args)
 {
   args = skip_whitespace(args);
   if (*args) {
     const uint32_t v = command_args_to_u32(args, nullptr);
-    ::nc::spi::sensors::config(v);
+    ::nc::spi::sensors.offline_config(v);
   }
-  ::nc::spi::sensors::config_dump();
+  ::nc::spi::sensors.offline_config_dump();
 }
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
+void spi_data(const char * args)
+{
+  (void) args;
+
+  auto & buffer = ::nc::shared_buffers.spi_data_buffer;
+  size_t buffer_size = sizeof(buffer);
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/SPI/DATA");
+
+#if 1
+  b << ::nc::spi::sensors;
+#else
+  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
+    //b.printf(" %u:", i);
+    //b << ::nc::spi::sensors.sensors_[i].data;
+    ::nc::spi::sensors.sensors_[i].to_buffer(b);
+  }
+#endif
+
+  b.printf("\n");
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
+}
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
+void spi_data_raw(const char * args)
+{
+  (void) args;
+
+  auto & buffer = ::nc::shared_buffers.spi_raw_data_buffer;
+  size_t buffer_size = sizeof(buffer);
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/SPI/RAW/DATA");
+
+  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
+    //b.printf(" %u:", i);
+    //b << ::nc::spi::sensors.sensors_[i].raw.data;
+    b << ::nc::spi::sensors.sensors_[i].raw;
+  }
+
+  b.printf("\n");
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
+}
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
+
+void spi_dump(const char * args)
+{
+  (void) args;
+  spi_report_stats();
+  spi_report_data();
+}
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
 
 void spi_run(const char * args)
 {
   (void) args;
-  spiDevice.run();
+  ::nc::spi::sensors.run();
 }
+
+} // namespace cli
+} // namespace nc
+
+namespace nc {
+namespace cli {
 
 void spi_stats(const char * args)
 {
   (void) args;
-  spi_report_stats();
-  SensorDevices_Data_report_all();
+
+  auto & buffer = ::nc::shared_buffers.spi_stats_buffer;
+  size_t buffer_size = sizeof(buffer);
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/STATS/SPI/SENSORS");
+
+  //b << ::nc::spi::sensors.stats;
+  ::nc::spi::sensors.stats_to_buffer(b);
+
+  b.printf("\n");
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
 }
+
+} // namespace cli
+} // namespace nc
 
 //#define SPI_TRANS_TIME_STATS
 
@@ -4332,92 +5057,6 @@ bool spi_down()
 }
 #endif
 
-bool spi_chip_active_ = false;
-
-bool spi_chip_init()
-{
-  LOG("");
-  if (spi_chip_active_) { return true; }
-
-  const auto r = (ESP_OK == spi_slave_initialize(SPI_DEVICE,
-      &spi_bus_config, &spi_slave_interface_config, SPI_DMA_DISABLED));
-  if (!r) {
-    LOG("ERROR: %s() failure", "spi_slave_initialize");
-  } else {
-    spi_chip_active_ = true;
-  }
-  return r;
-}
-
-bool spi_chip_down()
-{
-  if (!spi_chip_active_) { return true; }
-
-  const auto r = (ESP_OK == spi_slave_free(SPI_DEVICE));
-  if (!r) {
-    LOG("ERROR: '%s()' failure", "spi_slave_free");
-  } else {
-    spi_chip_active_ = false;
-  }
-  return r;
-}
-
-// Called after SPI is configured for 'transaction'.
-// Can be used to activate 'Master Request' (MR).
-unsigned spi_post_setup_cb_count_;
-#if defined SPI_TRANS_TIME_STATS
-uint32_t spi_post_setup_cb_us_;
-#endif
-void spi_post_setup_cb(spi_slave_transaction_t * transaction)
-{
-  ++spi_post_setup_cb_count_;
-
-#if defined SPI_TRANS_TIME_STATS
-  spi_post_setup_cb_us_ = esp_timer_get_time();
-#endif
-
-  spi_mr_mux(spi_sensor_n_);
-
-  //spi_sensor_n_ %= SPI_SENSORS_COUNT;
-  gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_ACTIvE);
-}
-
-bool spi_transfer_finished_;
-
-// Called after 'transaction' is sent/received.
-// Can be used to deactivate 'Master Request' (MR).
-// Can be used to mark end of multiple transfers.
-unsigned spi_post_trans_cb_count_;
-#if defined SPI_TRANS_TIME_STATS
-uint32_t spi_post_trans_cb_us_;
-uint32_t spi_post_trans_cb_us_min_ = uint32_t(-1);
-uint32_t spi_post_trans_cb_us_max_;
-#endif
-void spi_post_trans_cb(spi_slave_transaction_t * transaction)
-{
-  ++spi_post_trans_cb_count_;
-
-#if defined SPI_TRANS_TIME_STATS
-  spi_post_trans_cb_us_ = esp_timer_get_time();
-  uint32_t trans_us = spi_post_trans_cb_us_ - spi_post_setup_cb_us_;
-  if (spi_post_trans_cb_us_min_ > trans_us) {
-    spi_post_trans_cb_us_min_ = trans_us;
-  }
-  if (spi_post_trans_cb_us_max_ < trans_us) {
-    spi_post_trans_cb_us_max_ = trans_us;
-  }
-#endif
-
-  //spi_sensor_n_ %= SPI_SENSORS_COUNT;
-  gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
-
-  spi_rx_bits[spi_sensor_n_] = transaction->trans_len;
-
-  spi_transfer_finished_ = true;
-}
-
-uint8_t spi_sensor_n_;
-
 const spi_bus_config_t spi_bus_config = {
   .mosi_io_num = SPI_GPIO_MOSI,
   .miso_io_num = SPI_GPIO_MISO,
@@ -4440,17 +5079,80 @@ const spi_bus_config_t spi_bus_config = {
 #endif
 };
 
+namespace nc {
+namespace spi {
+namespace hw {
+
+void Chip::down()
+{
+  if (!active_) { return; }
+
+  const auto r = (ESP_OK == spi_slave_free(SPI_DEVICE));
+  if (!r) {
+    LOG("ERROR: '%s()' failure", "spi_slave_free");
+  }
+  active_ = false;
+}
+
+} // namespace hw
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+namespace hw {
+
+bool Chip::init()
+{
+  //LOG("");
+  if (active_) { return true; }
+
+  const auto r = (ESP_OK == spi_slave_initialize(SPI_DEVICE,
+      &spi_bus_config, &spi_slave_interface_config, SPI_DMA_DISABLED));
+  active_ = r;
+  if (!r) {
+    LOG("ERROR: %s() failure", "spi_slave_initialize");
+  }
+  return r;
+}
+
+} // namespace hw
+} // namespace spi
+} // namespace nc
+
 const uint8_t spi_pins[] = {
   SPI_GPIO_MOSI,
   SPI_GPIO_SCLK,
   SPI_GPIO_CS,
 };
 
+// Called after SPI is configured for 'transaction'.
+// Can be used to activate 'Master Request' (MR).
+void spi_post_setup_cb(spi_slave_transaction_t * transaction)
+{
+  auto sensors = static_cast<::nc::spi::Sensors*>(transaction->user);
+  ++sensors->stats.post_setup_cb_count;
+
+  gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_ACTIvE);
+}
+
+// Called after 'transaction' is sent/received.
+// Can be used to deactivate 'Master Request' (MR).
+// Can be used to mark end of transfer.
+void spi_post_trans_cb(spi_slave_transaction_t * transaction)
+{
+  gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
+
+  auto sensors = static_cast<::nc::spi::Sensors*>(transaction->user);
+  ++sensors->stats.post_trans_cb_count;
+  sensors->hw.active_ = false;
+}
+
 /*
     Currently only one transaction is used.
 
     Multiple transactions submitted to driver can improve performance but will
-    complicate cleanup in case of timeout.
+    complicate error handling (for exampe in case of timeout).
 */
 //#define SPI_QUEUE_SIZE SPI_SENSORS_COUNT
 #define SPI_QUEUE_SIZE 1
@@ -4470,37 +5172,6 @@ const spi_slave_interface_config_t spi_slave_interface_config = {
   .post_setup_cb = spi_post_setup_cb,
   .post_trans_cb = spi_post_trans_cb
 };
-
-/*
-    Warning: 'spi_slave_queue_trans()' does not make copy of
-    'spi_slave_transaction_t'. Instead it keeps it's address and uses it to
-    store number of actually transferred bits into 'trans_len' field. It means
-    that memory occupied by 'spi_slave_transaction_t' must be preserved until
-    the end of transmission which is notified by 'post_trans_cb' callback.
-*/
-static spi_slave_transaction_t spi_transaction_;
-
-bool spi_transfer_start(uint8_t spi_sensor_n)
-{
-  spi_transfer_finished_ = false;
-
-  spi_transaction_ = spi_slave_transaction_t {
-    //.flags = 0,
-    .length = SPI_DATA_SIZE * 8, // number of bits not bytes
-    // trans_len -- used by driver to return actual number of received bits
-    //.trans_len = 0,
-    .tx_buffer = &::nc::spi::buffers::tx[spi_sensor_n][0],
-    .rx_buffer = &::nc::spi::buffers::rx[spi_sensor_n][0],
-    // void * user // User-defined variable.
-    // Can be used to store 'spi_sensor_n' for 'spi_post_setup_cb' and 'spi_post_trans_cb'.
-    //.user = NULL,
-  };
-  if (ESP_OK != spi_slave_queue_trans(SPI_DEVICE, &spi_transaction_, 0)) {
-    LOG("ERROR: %s() failure", "spi_slave_queue_trans");
-    return false;
-  }
-  return true;
-}
 
 void spi_mr_mux(unsigned spi_sensor_n)
 {
@@ -4535,390 +5206,6 @@ void spi_mr_pin_setup()
   gpio_set_direction(spi_mr_pin, GPIO_MODE_INPUT_OUTPUT);
 }
 
-void SPI_Device::on_loop(uint32_t now_ms)
-{
-  switch (state_) {
-#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
-    CASE_CALL(init)
-    CASE_CALL(init_failed)
-    CASE_CALL(idle)
-    CASE_CALL(running)
-    CASE_CALL(run_failed)
-#undef CASE_CALL
-    default:
-      //LOG("ERROR: Unexpected state=%u", state_);
-      LOG("ERROR: Unexpected state=%u/'%s'", state_, to_string(state_));
-      break;
-  }
-}
-
-void spi_report_config()
-{
-  LOG(". %s=%u", "SPI_GPIO_MISO", SPI_GPIO_MISO);
-  LOG(". %s=%u", "SPI_GPIO_MOSI", SPI_GPIO_MOSI);
-  LOG(". %s=%u", "SPI_GPIO_SCLK", SPI_GPIO_SCLK);
-  LOG(". %s=%u", "SPI_GPIO_CS", SPI_GPIO_CS);
-  for (unsigned i = 0; i < ARRAY_SIZE(spi_mr_mux_pins); ++i) {
-    const auto spi_mr_mux_pin = spi_mr_mux_pins[i];
-    LOG(". SPI_MR_MUX_%u_GPIO=%u", i, spi_mr_mux_pin);
-  }
-  LOG(". %s=%u", "SPI_MR_GPIO", SPI_MR_GPIO);
-  LOG(". %s=%u", "SPI_BUFFER_SIZE", SPI_BUFFER_SIZE);
-  LOG(". %s=%u", "SPI_DATA_SIZE", SPI_DATA_SIZE);
-  LOG(". %s=%u", "SPI_RX_BITS_MIN", SPI_RX_BITS_MIN);
-  LOG(". %s=%u", "sizeof(::nc::spi::buffers::rx)", sizeof(::nc::spi::buffers::rx));
-}
-
-uint16_t spi_rx_bits[SPI_SENSORS_COUNT];
-
-void spi_rx_bits_reset()
-{
-  for (unsigned i = 0; i < ARRAY_SIZE(spi_rx_bits); ++i) {
-    spi_rx_bits[i] = 0;
-  }
-}
-
-bool spi_rx_bits_valid()
-{
-  for (unsigned i = 0; i < ARRAY_SIZE(spi_rx_bits); ++i) {
-    if (spi_rx_bits[i] < SPI_RX_BITS_MIN) {
-      //LOG(" . spi_rx_bits[%u]=%u SPI_RX_BITS_MIN=%u", i, spi_rx_bits[i], SPI_RX_BITS_MIN);
-      return false;
-    }
-  }
-  return true;
-}
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-uint8_t crc(const SensorDeviceData_t * deviceData)
-{
-  return calcCRC8(
-    (const uint8_t *) deviceData,
-    LGT8F_SPI_DATA_SIZE - sizeof(deviceData->crc));
-}
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-bool crc_valid(const SensorDeviceData_t * sensorDeviceData)
-{
-  return sensorDeviceData->crc == crc(sensorDeviceData);
-}
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-bool offline_[SPI_SENSORS_COUNT];
-
-uint8_t skip_offline(uint8_t spi_sensor_n)
-{
-  //LOG("spi_sensor_n=%u", spi_sensor_n);
-  while (spi_sensor_n < SPI_SENSORS_COUNT
-      && offline_[spi_sensor_n]) {
-    ++spi_sensor_n;
-    //LOG("spi_sensor_n=%u", spi_sensor_n);
-  }
-  return spi_sensor_n;
-}
-
-void config(uint32_t v)
-{
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    offline_[i] = true;
-  }
-  //LOG("v=0x%X/%u", v, v);
-  while (v) {
-    unsigned i = v % 10;
-    //LOG("v=0x%X/%u", i, i);
-    if (i) {
-      --i;
-      if (i < SPI_SENSORS_COUNT) {
-        offline_[i] = false;
-      }
-    }
-    v /= 10;
-  }
-}
-
-void config_dump()
-{
-  char s[SPI_SENSORS_COUNT+1];
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    s[i] = (offline_[i]) ? '.' : 'X';
-  }
-  s[SPI_SENSORS_COUNT] = '\0';
-  LOG("s='%s'", s);
-}
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-void analog_report_one(const SensorDeviceData_t & deviceData, unsigned i)
-{
-  const auto analogSignal = deviceData.analogSignals.all[i];
-  Serial.print(" ");
-  //Serial.print(analogSignal);
-  //Serial.print("/");
-  Serial.print(analogSignal * 0.001, 3);
-}
-
-void analog_report_all(const SensorDeviceData_t & deviceData)
-{
-  for (unsigned i = 0; i < ANALOG_SIGNALS_COUNT; ++i) {
-    analog_report_one(deviceData, i);
-  }
-  Serial.println("");
-}
-
-// byte ::nc::spi::buffers::rx[SPI_SENSORS_COUNT][SPI_BUFFER_SIZE];
-void SensorDevice_Data_report_one(unsigned i)
-{
-  const auto & deviceData = *(SensorDeviceData_t*)(&::nc::spi::buffers::rx[i][0]);
-
-#if 1
-  //LOG(". sizeof(SensorDeviceData_t)=%zu LGT8F_SPI_DATA_SIZE==%zu", sizeof(SensorDeviceData_t), LGT8F_SPI_DATA_SIZE);
-#if 1
-  const auto crc = ::nc::spi::sensors::crc(&deviceData);
-#else
-  uint8_t crc = calcCRC8(
-    (const uint8_t *) &deviceData,
-    LGT8F_SPI_DATA_SIZE - sizeof(deviceData.crc));
-#endif
-  LOG(". crc=0x%02X %s", crc, (deviceData.crc == crc) ? "OK" : "NG");
-#endif
-  hex_dump( (const uint8_t *)&deviceData, sizeof(deviceData));
-
-  Serial.print(". . ");
-  Serial.print(deviceData.vcc);
-  Serial.print("/");
-  Serial.print(deviceData.vcc * 0.00125, 4);
-  Serial.print(" |");
-  analog_report_all(deviceData);
-}
-
-void SensorDevices_Data_report_all()
-{
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    SensorDevice_Data_report_one(i);
-  }
-}
-
-
-/*
-  uint8_t crc = calcCRC8(
-    (const uint8_t *) &deviceData,
-    LGT8F_SPI_DATA_SIZE - sizeof(deviceData.crc));
-  Serial.print(". crc="); Serial.println(crc, HEX);
-*/
-
-namespace rpi {
-
-static size_t analog_report_one(
-    ::nc::mk::Buffer & b,
-    const SensorDeviceData_t & deviceData, unsigned i)
-{
-  const auto analogSignal = deviceData.analogSignals.all[i];
-  return b.printf(" %4i", analogSignal);
-}
-
-static size_t analog_report_all(
-    ::nc::mk::Buffer & b,
-    const SensorDeviceData_t & deviceData)
-{
-  size_t used = 0;
-  for (unsigned i = 0; i < ANALOG_SIGNALS_COUNT; ++i) {
-    used += ::rpi::analog_report_one(b, deviceData, i);
-  }
-  return used;
-}
-
-// byte ::nc::spi::buffers::rx[SPI_SENSORS_COUNT][SPI_BUFFER_SIZE];
-static size_t SensorDevice_Data_report_one(
-    ::nc::mk::Buffer & b,
-    unsigned i)
-{
-  const auto & deviceData = *(SensorDeviceData_t*)(&::nc::spi::buffers::rx[i][0]);
-#if 1
-  size_t used = b.printf("  %6u", deviceData.vcc * 125);
-#else
-  size_t used = b.printf("  %4u", deviceData.vcc);
-#endif
-  used += ::rpi::analog_report_all(b, deviceData);
-  return used;
-}
-
-/*
-    now_ms
-    spiDevice.transfer_start_time_ms_
-    spiDevice.transfer_end_time_ms_
-*/
-#define SensorDevices_Data_STRLEN ( \
-  CONSTSTRLEN("/TEST/SPI") \
-  + CONSTSTRLEN(" 1234567890") \
-  \
-  + CONSTSTRLEN(" SA=1234567890") \
-  + CONSTSTRLEN(" EA=1234567890") \
-  + ( \
-    CONSTSTRLEN("  123456") \
-    + CONSTSTRLEN(" 12345") * ANALOG_SIGNALS_COUNT \
-  ) * SPI_SENSORS_COUNT \
-  \
-  + CONSTSTRLEN("  XX") \
-  + CONSTSTRLEN("\n") \
-)
-
-void SensorDevices_Data_report_all(
-    ::nc::mk::Buffer & b,
-    uint32_t now_ms,
-    uint32_t test_start_time_ms)
-{
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    ::rpi::SensorDevice_Data_report_one(b, i);
-  }
-}
-
-static void SensorDevices_Data_report_all(
-    uint32_t now_ms,
-    uint32_t test_start_time_ms)
-{
-  static char buffer[SensorDevices_Data_STRLEN+1];
-  size_t buffer_size = sizeof(buffer);
-
-  ::nc::mk::Buffer b(buffer, buffer_size);
-
-  b.printf("/TEST/SPI");
-  b.printf(" %10u", now_ms - test_start_time_ms);
-  b.printf(" SA=%10u", spiDevice.transfer_start_time_ms_ - test_start_time_ms);
-  b.printf(" EA=%10u", spiDevice.transfer_end_time_ms_ - test_start_time_ms);
-  rpi::SensorDevices_Data_report_all(b, now_ms, test_start_time_ms);
-  b.printf("  XX\n");
-
-  const auto need = b.need();
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
-}
-
-} // namespace rpi
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-#define SPI_STATS_STRLEN ( \
-  CONSTSTRLEN(" rx_bits=ok/ng") \
-  + CONSTSTRLEN(" 999/999") * SPI_SENSORS_COUNT \
-  + CONSTSTRLEN(" crc=on/ng") \
-  + CONSTSTRLEN(" 999/999") * SPI_SENSORS_COUNT \
-)
-
-void reportStats(::nc::mk::Buffer & b)
-{
-  b.printf(" rx_bits=ok/ng");
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    b.printf(" %u/%u", stats_[i].rx_bits_ok, stats_[i].rx_bits_ng);
-  }
-  b.printf(" crc=ok/ng");
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    b.printf(" %u/%u", stats_[i].crc_ok, stats_[i].crc_ng);
-  }
-}
-
-void reportStats()
-{
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    LOG(" [%u] rx_bits=%u/%u crc=%u/%u",
-        i,
-        stats_[i].rx_bits_ok, stats_[i].rx_bits_ng,
-        stats_[i].crc_ok, stats_[i].crc_ng);
-  }
-}
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-namespace nc {
-namespace spi {
-namespace sensors {
-
-bool crc_valid_[SPI_SENSORS_COUNT];
-bool valid_[SPI_SENSORS_COUNT];
-bool valid_all_;
-
-void validate()
-{
-  valid_all_ = true;
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    if (!offline_[i]) {
-      const bool rx_bits_valid = !(spi_rx_bits[i] < SPI_RX_BITS_MIN);
-      if (rx_bits_valid) {
-        ++::nc::spi::sensors::stats_[i].rx_bits_ok;
-      } else {
-        ++::nc::spi::sensors::stats_[i].rx_bits_ng;
-      }
-      const auto crc_valid = ::nc::spi::sensors::crc_valid(deviceData(i));
-      crc_valid_[i] = crc_valid;
-      if (crc_valid) {
-        ++::nc::spi::sensors::stats_[i].crc_ok;
-      } else {
-        ++::nc::spi::sensors::stats_[i].crc_ng;
-      }
-      const bool sensor_valid = rx_bits_valid & crc_valid;
-      valid_[i] = sensor_valid;
-      valid_all_ &= sensor_valid;
-    }
-  }
-}
-
-#define crc_valid_STRLEN ( \
-  CONSTSTRLEN(" OK") * SPI_SENSORS_COUNT \
-)
-
-void crc_valid_dump()
-{
-  char buffer[crc_valid_STRLEN+1];
-  size_t buffer_size = sizeof(buffer);
-  ::nc::mk::Buffer b(buffer, buffer_size);
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    b.printf(" %s", crc_valid_[i] ? "OK" : "NG");
-  }
-  LOG("crc_valid='%s'", buffer);
-}
-
-#define valid_STRLEN ( \
-  CONSTSTRLEN(" OK") * SPI_SENSORS_COUNT \
-)
-
-void valid_dump()
-{
-  char buffer[valid_STRLEN+1];
-  size_t buffer_size = sizeof(buffer);
-  ::nc::mk::Buffer b(buffer, buffer_size);
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    b.printf(" %s", valid_[i] ? "OK" : "NG");
-  }
-  LOG("valid='%s'", buffer);
-}
-
-} // namespace sensors
-} // namespace spi
-} // namespace nc
-
-SPI_Device spiDevice;
-
 #if 0
 // GPIO_DRIVE_CAP_0: ~5 mA
 // GPIO_DRIVE_CAP_1: ~10 mA
@@ -4942,19 +5229,518 @@ void spi_pins_setup()
 }
 #endif
 
+namespace nc {
+namespace spi {
+
+void report_build_config()
+{
+  LOG(". %s=%u", "SPI_GPIO_MISO", SPI_GPIO_MISO);
+  LOG(". %s=%u", "SPI_GPIO_MOSI", SPI_GPIO_MOSI);
+  LOG(". %s=%u", "SPI_GPIO_SCLK", SPI_GPIO_SCLK);
+  LOG(". %s=%u", "SPI_GPIO_CS", SPI_GPIO_CS);
+  for (unsigned i = 0; i < ARRAY_SIZE(spi_mr_mux_pins); ++i) {
+    const auto spi_mr_mux_pin = spi_mr_mux_pins[i];
+    LOG(". SPI_MR_MUX_%u_GPIO=%u", i, spi_mr_mux_pin);
+  }
+  LOG(". %s=%u", "SPI_MR_GPIO", SPI_MR_GPIO);
+  LOG(". %s=%u", "SPI_BUFFER_SIZE", SPI_BUFFER_SIZE);
+  LOG(". %s=%u", "SPI_DATA_SIZE", SPI_DATA_SIZE);
+  LOG(". %s=%u", "SPI_RX_BITS_MIN", SPI_RX_BITS_MIN);
+}
+
+} // namespace spi
+} // namespace nc
+
 void spi_report_stats()
 {
-  LOG(". spi_post_setup_cb_count_=%u spi_post_trans_cb_count_=%u",
-      spi_post_setup_cb_count_, spi_post_trans_cb_count_);
-#if defined SPI_TRANS_TIME_STATS
-  LOG(". spi_post_trans_cb_us_min_=%u spi_post_trans_cb_us_max_=%u",
-      spi_post_trans_cb_us_min_, spi_post_trans_cb_us_max_);
-#endif
+  LOG(". post_setup_cb_count=%u post_trans_cb_count=%u",
+      ::nc::spi::sensors.stats.post_setup_cb_count,
+      ::nc::spi::sensors.stats.post_trans_cb_count);
 
   for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    hex_dump(&::nc::spi::buffers::rx[i][0], SPI_DATA_SIZE);
+    hex_dump(::nc::spi::sensors.sensors_[i].raw.rx_buffer, SPI_DATA_SIZE);
   }
 }
+
+namespace nc {
+namespace spi {
+
+uint8_t Sensor::Raw::crc() const
+{
+  return calcCRC8(
+    (const uint8_t *) &data,
+    LGT8F_SPI_DATA_SIZE - sizeof(data.crc));
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+bool Sensor::Raw::is_crc_valid_impl() const
+{
+  return data.crc == crc();
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensor::Raw::reset()
+{
+  memset(tx_buffer, 0, sizeof(tx_buffer));
+  memset(rx_buffer, 0, sizeof(rx_buffer));
+  status.transfer_done = false;
+  status.rx_bits = 0;
+  status.crc_valid_ = false;
+}
+
+} // namespace spi
+} // namespace nc
+
+::nc::mk::Buffer &
+::nc::spi::Sensor::Raw::Status::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  union {
+    struct {
+      uint8_t transfer:1;
+      uint8_t bits:1;
+      uint8_t crc:1;
+    } as_bits;
+    uint8_t as_byte;
+  } errors = {
+    .as_bits = {
+      .transfer = !transfer_done,
+      .bits = !rx_bits_valid(),
+      .crc = !is_crc_valid(),
+    },
+  };
+  return b
+    << ' '
+    << errors.as_byte;
+}
+
+::nc::mk::Buffer &
+::nc::spi::Sensor::Raw::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  return b
+    << status
+    << data;
+}
+
+namespace nc {
+namespace spi {
+
+void Sensor::Raw::update_crc_valid()
+{
+  status.crc_valid_ = is_crc_valid_impl();
+}
+
+} // namespace spi
+} // namespace nc
+
+//namespace nc {
+//namespace spi {
+
+::nc::mk::Buffer &
+::nc::spi::Sensor::Stats::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+/*
+  LOG("&transfer=%p counter: [0]=%" PRIu64 " [1]=%" PRIu64 "",
+      &transfer,
+      transfer.counter_[0],
+      transfer.counter_[1]);
+  hex_dump( (const uint8_t *) &transfer, sizeof(transfer));
+*/
+
+  return b
+    << transfer
+    << rx_bits
+    << crc;
+}
+
+//} // namespace spi
+//} // namespace nc
+
+::nc::mk::Buffer &
+::nc::spi::Sensor::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  return b
+    << raw.status
+    << data;
+}
+
+namespace nc {
+namespace spi {
+
+void Sensor::update_data()
+{
+  if (raw.status.transfer_done
+  && raw.status.rx_bits_valid()
+  && raw.status.is_crc_valid()) {
+    data = raw.data;
+  }
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+/*
+    Warning: 'spi_slave_queue_trans()' does not make copy of
+    'spi_slave_transaction_t'. Instead it keeps it's address and uses it to
+    store number of actually transferred bits into 'trans_len' field. It means
+    that memory occupied by 'spi_slave_transaction_t' must be preserved until
+    the end of transmission which is notified by 'post_trans_cb' callback.
+*/
+//static
+//spi_slave_transaction_t Sensors::hw::transaction_;
+
+bool Sensors::hw_transfer_start()
+{
+  sensors_[sensor_n_].raw.reset();
+  spi_mr_mux(sensor_n_);
+
+  if (!hw.chip_.init()) { return false;}
+
+  hw.transaction_ = spi_slave_transaction_t {
+    //.flags = 0,
+    .length = SPI_DATA_SIZE * 8, // number of bits not bytes
+    // trans_len -- used by driver to return actual number of received bits
+    //.trans_len = 0,
+    .tx_buffer = sensors_[sensor_n_].raw.tx_buffer,
+    .rx_buffer = sensors_[sensor_n_].raw.rx_buffer,
+    // void * user // User-defined variable.
+    .user = this,
+  };
+  const auto r =
+      (ESP_OK == spi_slave_queue_trans(SPI_DEVICE, &hw.transaction_, 0));
+  hw.active_ = r;
+  if (!r) {
+    LOG("ERROR: %s() failure", "spi_slave_queue_trans");
+    hw.chip_.down();
+  }
+  return r;
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::offline_config(uint32_t v)
+{
+  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
+    offline_[i] = true;
+  }
+  //LOG("v=0x%X/%u", v, v);
+  while (v) {
+    unsigned i = v % 10;
+    //LOG("v=0x%X/%u", i, i);
+    if (i) {
+      --i;
+      if (i < SPI_SENSORS_COUNT) {
+        offline_[i] = false;
+      }
+    }
+    v /= 10;
+  }
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::offline_config_dump() const
+{
+  char s[SPI_SENSORS_COUNT+1];
+  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
+    s[i] = (offline_[i]) ? '.' : 'X';
+  }
+  s[SPI_SENSORS_COUNT] = '\0';
+  LOG("s='%s'", s);
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::on_loop(uint32_t now_ms)
+{
+  switch (state_) {
+#define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
+    CASE_CALL(init)
+    CASE_CALL(init_failed)
+    CASE_CALL(idle)
+    CASE_CALL(transfer_init)
+    CASE_CALL(transfer_wait)
+    CASE_CALL(transfer_timeout)
+    CASE_CALL(next_sensor)
+    CASE_CALL(run_finished)
+#undef CASE_CALL
+    default:
+      LOG("ERROR: Unexpected state=%u/'%s'", state_, to_string(state_));
+      break;
+  }
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::skip_offline()
+{
+  //LOG("sensor_n_=%u", sensor_n_);
+  while (sensor_n_ < SPI_SENSORS_COUNT
+      && offline_[sensor_n_]) {
+    ++sensor_n_;
+    //LOG("sensor_n_=%u", sensor_n_);
+  }
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::on_state_idle(uint32_t now_ms)
+{
+  if (run_) {
+    run_ = false;
+    run_finished_ = false;
+
+    transfer_start_time_ms_ = now_ms;
+    sensor_n_ = 0;
+    state(State::transfer_init);
+  }
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::on_state_init(uint32_t now_ms)
+{
+  (void) now_ms;
+  state( (hw.chip_.init()) ? State::idle : State::init_failed);
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+// Can be used to implement delay before init retry
+void Sensors::on_state_init_failed(uint32_t now_ms)
+{
+  (void) now_ms;
+  state(State::idle);
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::on_state_next_sensor(uint32_t now_ms)
+{
+  ++sensor_n_;
+  if (sensor_n_ < SPI_SENSORS_COUNT) {
+    state(State::transfer_init);
+  } else {
+    state(State::run_finished);
+  }
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::on_state_run_finished(uint32_t now_ms)
+{
+  transfer_end_time_ms_ = now_ms;
+
+  //::nc::spi::sensors::validate();
+
+  run_finished_ = true;
+  state(State::idle);
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+const char * Sensors::to_string(State state)
+{
+  static const char * const state_names[] = {
+    "init",
+    "init_failed",
+    "idle",
+    "transfer_init",
+    "transfer_wait",
+    "transfer_timeout",
+    "next_sensor",
+    "run_finished",
+  };
+  const auto i = unsigned(state);
+  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::on_state_transfer_init(uint32_t now_ms)
+{
+  sensors_[sensor_n_].raw.reset();
+
+  if (offline_[sensor_n_]) {
+    state(State::next_sensor);
+    return;
+  }
+
+  timeout_time_ms_ = now_ms + single_transfer_timeout_ms;
+  if (!hw_transfer_start()) {
+    ++sensors_[sensor_n_].stats.transfer.ng();
+    state(State::next_sensor);
+  } else {
+    state(State::transfer_wait);
+  }
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::on_state_transfer_timeout(uint32_t now_ms)
+{
+  LOG("WARNING: spi sensor %u transfer timeout", sensor_n_);
+
+  // make sure MR pin is inactive
+  gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
+
+  hw.chip_.down();
+
+  state(State::next_sensor);
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::on_state_transfer_wait(uint32_t now_ms)
+{
+  if (!hw.active_) {
+    auto & sensor = sensors_[sensor_n_];
+
+    sensor.raw.status.transfer_done = true;
+    sensor.raw.status.rx_bits = hw.rx_bits();
+    sensor.raw.update_crc_valid();
+    sensor.update_data();
+
+    ++sensor.stats.transfer.ok();
+    ++sensor.stats.rx_bits[sensor.raw.status.rx_bits_valid()];
+    ++sensor.stats.crc[sensor.raw.status.is_crc_valid()];
+
+    state(State::next_sensor);
+  } else
+  if (timeout_time_ms_ <= now_ms) {
+    ++sensors_[sensor_n_].stats.transfer.ng();
+    state(State::transfer_timeout);
+  }
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+void Sensors::state(State new_state)
+{
+#if defined nc_Monitor_state_verbose
+  const auto old_state_name = to_string(state_);
+#endif
+  state_ = new_state;
+#if defined nc_Monitor_state_verbose
+  const auto new_state_name = to_string(state_);
+  LOG("'%s' -> '%s'", old_state_name, new_state_name);
+#endif
+}
+
+} // namespace spi
+} // namespace nc
+
+namespace nc {
+namespace spi {
+
+::nc::mk::Buffer &
+Sensors::Stats::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  return b
+    << ' '
+    << post_setup_cb_count
+    << ' '
+    << post_trans_cb_count;
+}
+
+::nc::mk::Buffer &
+Sensors::stats_to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  stats.to_buffer(b);
+  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
+    //b.printf(" %u:", i);
+    b << sensors_[i].stats;
+  }
+  return b;
+}
+
+} // namespace spi
+} // namespace nc
+
+::nc::mk::Buffer &
+::nc::spi::Sensors::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
+    b << ::nc::spi::sensors.sensors_[i];
+  }
+  return b;
+}
+
+namespace nc {
+namespace spi {
+
+Sensors sensors;
+
+} // namespace spi
+} // namespace nc
 
 void spi_setup()
 {
@@ -4964,141 +5750,61 @@ void spi_setup()
   LOG("");
 }
 
-void SPI_Device::on_state_idle(uint32_t now_ms)
+void analog_report_one(const ::nc::lgt::SensorData & sensorData, unsigned i)
 {
-  (void) now_ms;
-  if (run_) {
-    run_ = false;
+  const auto analogSignal = sensorData.analogSignals.all[i];
+  Serial.print(" ");
+  Serial.print(analogSignal * 0.001, 3);
+}
 
-    //scope_sync_on(true);
-    transfer_start_time_ms_ = now_ms;
-
-    constexpr uint32_t spi_transfer_all_timeout_ms = 100;
-    timeout_time_ms_ = now_ms + spi_transfer_all_timeout_ms;
-
-    spi_rx_bits_reset();
-    spi_sensor_n_ = 0;
-
-    spi_sensor_n_ = ::nc::spi::sensors::skip_offline(spi_sensor_n_);
-    //LOG("spi_sensor_n_=%u", spi_sensor_n_);
-    if (spi_sensor_n_ >= SPI_SENSORS_COUNT) {
-      state(State::idle);
-      return;
-    }
-
-    //memset(::nc::spi::buffers::rx, 'R', sizeof(::nc::spi::buffers::rx));
-    //memset(::nc::spi::buffers::tx, 'T', sizeof(::nc::spi::buffers::tx));
-    //memset(::nc::spi::buffers::tx, 0x00, sizeof(::nc::spi::buffers::tx));
-    //memset(::nc::spi::buffers::tx, 0x0F, sizeof(::nc::spi::buffers::tx));
-    //memset(::nc::spi::buffers::tx, 0xFF, sizeof(::nc::spi::buffers::tx));
-    //memset(::nc::spi::buffers::tx, 0xC3, sizeof(::nc::spi::buffers::tx));
-    //memset(::nc::spi::buffers::tx, 0xF0, sizeof(::nc::spi::buffers::tx));
-    //memset(::nc::spi::buffers::tx, 0x81, sizeof(::nc::spi::buffers::tx));
-    memset(::nc::spi::buffers::tx, 0x99, sizeof(::nc::spi::buffers::tx));
-
-    if (spi_transfer_start(spi_sensor_n_)) {
-      state(State::running);
-    } else {
-      //scope_sync_on(false);
-      state(State::idle);
-    }
+void analog_report_all(const ::nc::lgt::SensorData & sensorData)
+{
+  for (unsigned i = 0; i < ::nc::lgt::ALL_ANALOG_SIGNALS_COUNT; ++i) {
+    analog_report_one(sensorData, i);
   }
+  Serial.println("");
 }
 
-void SPI_Device::on_state_init(uint32_t now_ms)
+void SensorDevice_Data_report_one(unsigned i)
 {
-  (void) now_ms;
-  state( (spi_chip_init()) ? State::idle : State::init_failed);
+  const auto & sensor = ::nc::spi::sensors.sensors_[i];
+  const auto & sensorData = sensor.raw.data;
+
+#if 1
+  const auto crc = sensor.raw.crc();
+  LOG(". crc=0x%02X %s", crc, (sensorData.crc == crc) ? "OK" : "NG");
+#endif
+  hex_dump( (const uint8_t *)&sensorData, sizeof(sensorData));
+
+  Serial.print(". . ");
+  Serial.print(sensorData.vcc);
+  Serial.print("/");
+  Serial.print(sensorData.vcc * 0.00125, 4);
+  Serial.print(" |");
+  analog_report_all(sensorData);
 }
 
-// Can be used to implement delay before init retry
-void SPI_Device::on_state_init_failed(uint32_t now_ms)
+void spi_report_data()
 {
-  (void) now_ms;
-}
-
-/*
-    SPI transfer can fail. It results in 'timeout'.
-    It can be fixed by chip re-init.
-*/
-void SPI_Device::on_state_run_failed(uint32_t now_ms)
-{
-  (void) now_ms;
-
-  spi_chip_down();
-
-  state(State::init);
-}
-
-/*
-    'spi_transfer_finished_' marks end of single transfer.
-
-    TODO: Implement some state for multiple transfers to integrate them with
-    'Test' running.
-*/
-void SPI_Device::on_state_running(uint32_t now_ms)
-{
-  if (spi_transfer_finished_) {
-    ++spi_sensor_n_;
-    spi_sensor_n_ = ::nc::spi::sensors::skip_offline(spi_sensor_n_);
-    //LOG("spi_sensor_n_=%u", spi_sensor_n_);
-    if (spi_sensor_n_ < SPI_SENSORS_COUNT) {
-      if (!spi_transfer_start(spi_sensor_n_)) {
-        //scope_sync_on(false);
-        state(State::idle);
-      }
-    } else {
-      ::nc::spi::sensors::validate();
-      //::nc::spi::sensors::crc_valid_dump();
-      //::nc::spi::sensors::valid_dump();
-      //::nc::spi::sensors::stats_dump();
-
-      transfer_end_time_ms_ = now_ms;
-      //scope_sync_on(false);
-      state(State::idle);
-    }
-  } else
-  if (timeout_time_ms_ <= now_ms) {
-    LOG("WARNING: %s %s", "spi transfer", "timeout");
-
-    // make sure MR pin is inactive
-    gpio_set_level(gpio_num_t(SPI_MR_GPIO), SPI_MR_INACTIvE);
-
-    //scope_sync_on(false);
-    state(State::run_failed);
+  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
+    SensorDevice_Data_report_one(i);
   }
-}
-
-const char * SPI_Device::to_string(State state)
-{
-  static const char * const state_names[] = {
-    "init",
-    "init_failed",
-    "idle",
-    "running",
-    "run_failed",
-  };
-  const auto i = unsigned(state);
-  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
-}
-
-void SPI_Device::state(State new_state)
-{
-  const auto old_state_name = to_string(state_);
-  state_ = new_state;
-  const auto new_state_name = to_string(state_);
-  //LOG("'%s' -> '%s'", old_state_name, new_state_name);
 }
 
 namespace nc {
-namespace spi {
-namespace buffers {
+namespace stats {
 
-byte tx[SPI_SENSORS_COUNT][SPI_BUFFER_SIZE];
-byte rx[SPI_SENSORS_COUNT][SPI_BUFFER_SIZE];
+::nc::mk::Buffer &
+OkNg::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  return b
+    << ' '
+    << ok()
+    << ' '
+    << ng();
+}
 
-} // namespace buffers
-} // namespace spi
+} // namespace stats
 } // namespace nc
 
 void Test::change_PS_EL_configs(const ProfileStep * profileStep)
@@ -5239,7 +5945,7 @@ void Test::on_loop(uint32_t now_ms)
   \
   + ( \
     CONSTSTRLEN("  123456") \
-    + CONSTSTRLEN(" 12345") * ANALOG_SIGNALS_COUNT \
+    + CONSTSTRLEN(" 12345") * ::nc::lgt::ALL_ANALOG_SIGNALS_COUNT \
   ) * SPI_SENSORS_COUNT \
   \
   + CONSTSTRLEN("  XX") \
@@ -5282,7 +5988,7 @@ void Test::report_step_data(
 //b.printf("  |");
   iMeter.reportMeasurements(b, now_ms, test_start_time_ms);
 //b.printf("  |");
-  rpi::SensorDevices_Data_report_all(b, now_ms, test_start_time_ms);
+  b << ::nc::spi::sensors;
 
   b.printf("  XX\n");
 
@@ -5410,7 +6116,7 @@ void Test::on_state_measure_init(uint32_t now_ms)
 
   measure_.timeout_time_ms_ = now_ms + measure_.timeout_ms;
 
-  spiDevice.run();
+  ::nc::spi::sensors.run();
   iMeter.run();
 
   state(State::measure_wait);
@@ -5424,24 +6130,18 @@ void Test::on_state_measure_wait(uint32_t now_ms)
   if (abort_) {
     state(State::abort);
   } else
-  if (spiDevice.isTransferFinished() && iMeter.isMeasurementFinished()) {
+  if (::nc::spi::sensors.run_finished()
+  && iMeter.isMeasurementFinished()) {
     // --- 'measure end' ---
     measure_.end_time_actual_ms_ = now_ms;
 
     // FIXME: Do not abort test on invalid measurements.
 
-    if (!spiDevice.areSensorsDataValid()) {
-      LOG("ERROR: received sensors' data are invalid");
-      state(State::abort);
-    } else if (!iMeter.areMeasurementsValid()) {
+    if (!iMeter.areMeasurementsValid()) {
       LOG("ERROR: 'current' measurements are invalid");
       state(State::abort);
     } else {
       // report measurements
-#if 0
-      iMeter.reportMeasurements(now_ms, test_start_time_ms_);
-      rpi::SensorDevices_Data_report_all(now_ms, test_start_time_ms_);
-#endif
       report_step_data(now_ms, test_start_time_ms_);
 
       // start next sub step
@@ -5691,8 +6391,7 @@ void uart_stats_report()
 
   b.printf("\n");
 
-  const auto need = b.need();
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
 }
 
 const UartConfig cn_uartConfig = {
@@ -6369,7 +7068,7 @@ static Runnable * const runnables_[] = {
   &psDevice,
   &elDevice,
   &iMeter,
-  &spiDevice,
+  &::nc::spi::sensors,
   &test,
   &::nc::monitor_,
 };

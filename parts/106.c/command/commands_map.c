@@ -41,9 +41,12 @@ static const commands_map_t commands_map[] = {
   COMMAND(test_dump),
   COMMAND(test_state),
 
+  COMMAND(spi_config),
+  COMMAND(spi_data),
+  COMMAND(spi_data_raw),
+  COMMAND(spi_dump),
   COMMAND(spi_run),
   COMMAND(spi_stats),
-  COMMAND(spi_config),
 
   COMMAND(ps_id),
   COMMAND(ps_clear_alerts),

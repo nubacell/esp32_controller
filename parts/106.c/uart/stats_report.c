@@ -30,6 +30,5 @@ void uart_stats_report()
 
   b.printf("\n");
 
-  const auto need = b.need();
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
 }

@@ -48,14 +48,14 @@ static void report_V(
     unsigned spi_sensor_n,
     unsigned index)
 {
-  const auto & deviceData = *::nc::spi::sensors::deviceData(spi_sensor_n);
+  const auto & deviceData = ::nc::spi::sensors.sensors_[spi_sensor_n].raw.data;
   const auto & analogSignals = deviceData.analogSignals;
-  const auto & voltage = analogSignals.voltage;
+  const auto & voltages = analogSignals.voltages;
   Serial.print(" V");
   Serial.print(spi_sensor_n + 1);
   Serial.print(index);
   Serial.print(":");
-  Serial.print(scale_V(voltage[index]),3);
+  Serial.print(scale_V(voltages[index]),3);
 }
 
 static void report_T(
@@ -63,27 +63,27 @@ static void report_T(
     unsigned group,
     unsigned index)
 {
-  const auto & deviceData = *::nc::spi::sensors::deviceData(spi_sensor_n);
+  const auto & deviceData = ::nc::spi::sensors.sensors_[spi_sensor_n].raw.data;
   const auto & analogSignals = deviceData.analogSignals;
-  const auto & temperature = analogSignals.temperature;
+  const auto & temperatures = analogSignals.temperatures;
   Serial.print(" T");
   Serial.print(spi_sensor_n + 1);
   Serial.print(index);
   Serial.print(group);
   Serial.print(":");
-  Serial.print(scale_T(temperature[group][index]));
+  Serial.print(scale_T(temperatures[group][index]));
 }
 
 void Monitor::report_VT(unsigned spi_sensor_n) const
 {
   if (!disable_.V_) {
-    for (unsigned i = 0; i < voltage_pins_count; ++i) {
+    for (unsigned i = 0; i < ::nc::lgt::voltage_pins_COUNT; ++i) {
       report_V(spi_sensor_n, i);
     }
   }
 
   if (!disable_.T_) {
-    for (unsigned i = 0; i < temperature_pins_count; ++i) {
+    for (unsigned i = 0; i < ::nc::lgt::temperature_pins_COUNT; ++i) {
       report_T(spi_sensor_n, 0, i);
       report_T(spi_sensor_n, 1, i);
     }
@@ -99,12 +99,11 @@ void Monitor::report() const
     report_I();
   }
 
-  unsigned spi_sensor_n = 0;
-  for (;;) {
-    spi_sensor_n = ::nc::spi::sensors::skip_offline(spi_sensor_n);
-    if (spi_sensor_n >= SPI_SENSORS_COUNT) { break; }
-    report_VT(spi_sensor_n);
-    ++spi_sensor_n;
+  ;
+  for (unsigned sensor_n = 0; sensor_n < SPI_SENSORS_COUNT; ++sensor_n) {
+    if (!::nc::spi::sensors.offline(sensor_n)) {
+      report_VT(sensor_n);
+    }
   }
 
   Serial.println("");

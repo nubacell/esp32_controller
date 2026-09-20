@@ -21,7 +21,7 @@
   \
   + ( \
     CONSTSTRLEN("  123456") \
-    + CONSTSTRLEN(" 12345") * ANALOG_SIGNALS_COUNT \
+    + CONSTSTRLEN(" 12345") * ::nc::lgt::ALL_ANALOG_SIGNALS_COUNT \
   ) * SPI_SENSORS_COUNT \
   \
   + CONSTSTRLEN("  XX") \
@@ -64,7 +64,7 @@ void Test::report_step_data(
 //b.printf("  |");
   iMeter.reportMeasurements(b, now_ms, test_start_time_ms);
 //b.printf("  |");
-  rpi::SensorDevices_Data_report_all(b, now_ms, test_start_time_ms);
+  b << ::nc::spi::sensors;
 
   b.printf("  XX\n");
 

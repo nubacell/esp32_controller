@@ -6,7 +6,7 @@ void Monitor::on_state_measure_wait(uint32_t now_ms)
   if (stop_) {
     state(State::stop);
   } else
-  if (spiDevice.isTransferFinished()
+  if (::nc::spi::sensors.run_finished()
   && iMeter.isMeasurementFinished()) {
     state(State::measure_done);
   } else
