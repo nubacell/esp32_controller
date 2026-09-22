@@ -17,7 +17,7 @@
   \
   + ( \
     + CONSTSTRLEN(" 61440000") \
-  ) * I_METER_CHANNELS_COUNT \
+  ) * I_METERS_COUNT \
   \
   + ( \
     CONSTSTRLEN("  123456") \
@@ -62,7 +62,7 @@ void Test::report_step_data(
   b.printf(" %10u", now_ms - test_start_time_ms);
 
 //b.printf("  |");
-  iMeter.reportMeasurements(b, now_ms, test_start_time_ms);
+  b << iMeters;
 //b.printf("  |");
   b << ::nc::spi::sensors;
 

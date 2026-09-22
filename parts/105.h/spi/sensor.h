@@ -32,6 +32,7 @@ struct Sensor
     struct Status
     {
       bool transfer_done;
+
       uint16_t rx_bits;
       bool crc_valid_;
 

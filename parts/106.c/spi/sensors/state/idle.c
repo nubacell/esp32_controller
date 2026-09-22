@@ -10,6 +10,7 @@ void Sensors::on_state_idle(uint32_t now_ms)
 
     transfer_start_time_ms_ = now_ms;
     sensor_n_ = 0;
+
     state(State::transfer_init);
   }
 }

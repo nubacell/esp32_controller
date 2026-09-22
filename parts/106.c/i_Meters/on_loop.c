@@ -1,13 +1,16 @@
 
-void I_Meter::on_loop(uint32_t now_ms)
+void I_Meters::on_loop(uint32_t now_ms)
 {
   switch (state_) {
 #define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
     CASE_CALL(init)
     CASE_CALL(init_failed)
     CASE_CALL(idle)
-    CASE_CALL(running)
-    CASE_CALL(run_failed)
+    CASE_CALL(transfer_init)
+    CASE_CALL(transfer_wait)
+    CASE_CALL(transfer_timeout)
+    CASE_CALL(next_channel)
+    CASE_CALL(run_finished)
 #undef CASE_CALL
     default:
       //LOG("ERROR: Unexpected state=%u", state_);

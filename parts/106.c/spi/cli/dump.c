@@ -5,7 +5,7 @@ namespace cli {
 void spi_dump(const char * args)
 {
   (void) args;
-  spi_report_stats();
+  ::nc::spi::stats::report();
   spi_report_data();
 }
 

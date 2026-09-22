@@ -10,6 +10,7 @@ void Sensors::on_state_transfer_wait(uint32_t now_ms)
     sensor.raw.status.transfer_done = true;
     sensor.raw.status.rx_bits = hw.rx_bits();
     sensor.raw.update_crc_valid();
+
     sensor.update_data();
 
     ++sensor.stats.transfer.ok();

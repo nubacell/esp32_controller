@@ -22,6 +22,7 @@ void spi_data(const char * args)
   }
 #endif
 
+  b.printf(" XX");
   b.printf("\n");
 
   SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());

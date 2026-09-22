@@ -7,7 +7,7 @@ void Monitor::on_state_measure_wait(uint32_t now_ms)
     state(State::stop);
   } else
   if (::nc::spi::sensors.run_finished()
-  && iMeter.isMeasurementFinished()) {
+  && iMeters.run_finished()) {
     state(State::measure_done);
   } else
   if (measure_.timeout_time_ms_ <= now_ms) {

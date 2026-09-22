@@ -6,7 +6,7 @@ static Runnable * const runnables_[] = {
   &cnDevice,
   &psDevice,
   &elDevice,
-  &iMeter,
+  &iMeters,
   &::nc::spi::sensors,
   &test,
   &::nc::monitor_,

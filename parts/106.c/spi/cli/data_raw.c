@@ -18,6 +18,7 @@ void spi_data_raw(const char * args)
     b << ::nc::spi::sensors.sensors_[i].raw;
   }
 
+  b.printf(" XX");
   b.printf("\n");
 
   SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());

@@ -14,7 +14,7 @@ namespace spi {
 
 bool Sensors::hw_transfer_start()
 {
-  sensors_[sensor_n_].raw.reset();
+  //sensors_[sensor_n_].raw.reset();
   spi_mr_mux(sensor_n_);
 
   if (!hw.chip_.init()) { return false;}

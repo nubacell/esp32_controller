@@ -29,19 +29,19 @@ static float scale_T(uint16_t v)
 static void report_I_raw()
 {
   Serial.print(" I0raw:");
-  Serial.print(iMeter.conversion_results[0]);
+  Serial.print(iMeters.iMeters_[0].value);
 
   Serial.print(" I1raw:");
-  Serial.print(iMeter.conversion_results[1]);
+  Serial.print(iMeters.iMeters_[1].value);
 }
 
 static void report_I()
 {
   Serial.print(" I0:");
-  Serial.print(scale_I(iMeter.conversion_results[0]),7);
+  Serial.print(scale_I(iMeters.iMeters_[0].value),7);
 
   Serial.print(" I1:");
-  Serial.print(scale_I(iMeter.conversion_results[1]),7);
+  Serial.print(scale_I(iMeters.iMeters_[1].value),7);
 }
 
 static void report_V(

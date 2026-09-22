@@ -1,2 +1,0 @@
-
-I_Meter iMeter;

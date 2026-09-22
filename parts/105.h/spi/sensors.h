@@ -1,4 +1,6 @@
 
+//#define spi_Sensors_state_verbose
+
 namespace nc {
 namespace spi {
 

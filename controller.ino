@@ -412,6 +412,8 @@ void ps_ovp(const char * args);
 void ps_ocp(const char * args);
 void ps_output(const char * args);
 
+void stats(const char * args);
+
 void ux_baud(unsigned n, const char * args);
 
 void u1_baud(const char * args);
@@ -1285,74 +1287,145 @@ void i2c_adc_run(const char * args);
 
 void i2c_adc_stats(const char * args);
 
-#define I_METER_CHANNELS_COUNT 2
-
 struct I_Meter
+{
+  struct Status
+  {
+    bool transfer_done;
+
+    inline void reset() { transfer_done = false; }
+
+    ::nc::mk::Buffer &
+    to_buffer(::nc::mk::Buffer & b) const noexcept;
+  } status;
+
+  uint16_t value; // conversion_result;
+  void update_value();
+
+  ::nc::mk::Buffer &
+  to_buffer(::nc::mk::Buffer & b) const noexcept;
+};
+
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const I_Meter::Status & status) noexcept
+{
+  return status.to_buffer(b);
+}
+
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const I_Meter & iMeter) noexcept
+{
+  return iMeter.to_buffer(b);
+}
+
+//#define iMeters_state_verbose
+
+#define I_METERS_COUNT 2
+
+struct I_Meters
   : Runnable
 {
+  struct Stats {
+    ::nc::stats::OkNg start;
+    ::nc::stats::OkNg poll;
+    ::nc::stats::OkNg read;
+
+    static constexpr const char * const tags[] = {
+      "start",
+      "poll",
+      "read",
+    };
+
+    ::nc::mk::Buffer &
+    to_buffer(::nc::mk::Buffer & b) const noexcept;
+  } stats;
+
   uint32_t start_time_ms_;
   uint32_t end_time_ms_;
-
   static constexpr uint32_t single_conversion_timeout_ms = 5;
   uint32_t timeout_time_ms_;
 
-  bool run_ = false;
-  bool measurementsValid_ = false;
+  I_Meter iMeters_[I_METERS_COUNT];
 
-  enum class State : uint8_t {
-    init,
-    init_failed,
-    idle,
-    running,
-    run_failed,
-  };
-  State state_ = State::init;
-  static const char * to_string(State state);
-  void state(State new_state);
-
-  uint16_t conversion_results[I_METER_CHANNELS_COUNT];
   uint8_t channel_;
-
-  struct Stats {
-    unsigned start_;
-    unsigned start_timeout_;
-    unsigned poll_;
-    unsigned poll_timeout_;
-    unsigned read_;
-    unsigned read_timeout_;
-  } stats_[I_METER_CHANNELS_COUNT];
 
   bool start();
   bool poll(bool & ready);
   bool read(uint16_t & v);
 
+  enum class State : uint8_t {
+    init,
+    init_failed,
+    idle,
+    transfer_init,
+    transfer_wait,
+    transfer_timeout,
+    next_channel,
+    run_finished,
+  };
+  State state_ = State::init;
+  static const char * to_string(State state);
+  void state(State new_state);
+
   void on_state_init(uint32_t now_ms);
   void on_state_init_failed(uint32_t now_ms);
   void on_state_idle(uint32_t now_ms);
-  void on_state_running(uint32_t now_ms);
-  void on_state_run_failed(uint32_t now_ms);
+  void on_state_transfer_init(uint32_t now_ms);
+  void on_state_transfer_wait(uint32_t now_ms);
+  void on_state_transfer_timeout(uint32_t now_ms);
+  void on_state_next_channel(uint32_t now_ms);
+  void on_state_run_finished(uint32_t now_ms);
 
   void on_loop(uint32_t now_ms) override;
 
-  void run()
-  {
-    run_ = true;
-  }
+  bool run_ = false;
+  inline void run() { run_ = true; }
+  bool run_finished_ = false;
+  inline bool run_finished() /*const*/ { return run_finished_; }
 
-  bool isMeasurementFinished() /*const*/ { return State::idle == state_; }
-  bool areMeasurementsValid() /*const*/ { return measurementsValid_; }
-  void reportMeasurements(
-    ::nc::mk::Buffer & b,
-    uint32_t now_ms,
-    uint32_t test_start_time_ms) const;
-  void reportMeasurements(
-      uint32_t now_ms,
-      uint32_t test_start_time_ms) const;
-  void reportStats() const;
-  void reportStats(::nc::mk::Buffer & b) const;
+  ::nc::mk::Buffer &
+  to_buffer(::nc::mk::Buffer & b) const noexcept;
 };
 
-extern I_Meter iMeter;
+extern I_Meters iMeters;
+
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const I_Meters::Stats& stats) noexcept
+{
+  return stats.to_buffer(b);
+}
+
+static
+inline
+::nc::mk::Buffer &
+operator<<(
+    ::nc::mk::Buffer & b,
+    const I_Meters & iMeters) noexcept
+{
+  return iMeters.to_buffer(b);
+}
+
+namespace nc {
+namespace i2c {
+namespace stats {
+
+void report();
+
+} // namespace stats
+} // namespace i2c
+} // namespace nc
 
 namespace nc {
 namespace lgt {
@@ -1648,12 +1721,6 @@ void profile_steps(const char * args);
 
 void report_config();
 
-namespace rpi {
-
-void reportStats();
-
-} // namespace rpi
-
 void serial_write_buffer(
     const char *file, unsigned line, const char * function,
     char * buffer, size_t buffer_size, size_t used);
@@ -1836,8 +1903,6 @@ void report_build_config();
 } // namespace spi
 } // namespace nc
 
-void spi_report_stats();
-
 namespace nc {
 namespace spi {
 
@@ -1871,6 +1936,7 @@ struct Sensor
     struct Status
     {
       bool transfer_done;
+
       uint16_t rx_bits;
       bool crc_valid_;
 
@@ -1940,6 +2006,8 @@ operator<<(
 {
   return sensor.to_buffer(b);
 }
+
+//#define spi_Sensors_state_verbose
 
 namespace nc {
 namespace spi {
@@ -2055,6 +2123,16 @@ void analog_report_one(const ::nc::lgt::SensorData & sensorData, unsigned i);
 void analog_report_all(const ::nc::lgt::SensorData & sensorData);
 void SensorDevice_Data_report_one(unsigned i);
 void spi_report_data();
+
+namespace nc {
+namespace spi {
+namespace stats {
+
+void report();
+
+} // namespace stats
+} // namespace spi
+} // namespace nc
 
 void test_abort(const char * args);
 
@@ -2806,12 +2884,6 @@ size_t Buffer::vprintf(const char * format, va_list argsList) noexcept
 
 const char CMD_IDENTIFY[] = "*IDN?";
 
-void stats(const char * args)
-{
-  (void) args;
-  ::rpi::reportStats();
-}
-
 double command_args_to_double(const char * args, const char ** tail)
 {
   double v;
@@ -3051,6 +3123,14 @@ void command_idn(const char * args)
 {
   (void) args;
   LOG("NubaCell BT ESP32 v.0.0 sn:1234567890");
+}
+
+void stats(const char * args)
+{
+  (void) args;
+  uart_stats_report();
+  ::nc::i2c::stats::report();
+  ::nc::spi::stats::report();
 }
 
 void ux_baud(unsigned n, const char * args)
@@ -3637,35 +3717,72 @@ bool Adc::start_single_conversion(unsigned channel)
 } // namespace i2c
 } // namespace nc
 
+#define I_Meter_Measurements_STRLEN ( \
+  CONSTSTRLEN("/I2C/ADC/iMeter/DATA") \
+  \
+  + ( \
+    + CONSTSTRLEN(" 0") \
+    + CONSTSTRLEN(" 61440000") \
+  ) * I_METERS_COUNT \
+  \
+  + CONSTSTRLEN(" XX") \
+  + CONSTSTRLEN("\n") \
+)
+
 void i2c_adc_report(const char * args)
 {
   (void) args;
-  iMeter.reportMeasurements(0, 0);
+
+  char buffer[I_Meter_Measurements_STRLEN+1];
+  size_t buffer_size = sizeof(buffer);
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/I2C/ADC/iMeter/DATA");
+  b << iMeters;
+  b.printf(" XX");
+  b.printf("\n");
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
 }
 
 void i2c_adc_run(const char * args)
 {
   (void) args;
-  iMeter.run();
+  iMeters.run();
 }
 
 void i2c_adc_stats(const char * args)
 {
   (void) args;
-  iMeter.reportStats();
+  ::nc::i2c::stats::report();
 }
 
-I_Meter iMeter;
+// 6.144 / 32768. = 0.0001875
+// const auto volts = double(v) * 6.144 / 32768.;
 
-void I_Meter::on_loop(uint32_t now_ms)
+::nc::mk::Buffer &
+I_Meter::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  return b
+    << status
+    << ' '
+    << value * 1875;
+}
+
+I_Meters iMeters;
+
+void I_Meters::on_loop(uint32_t now_ms)
 {
   switch (state_) {
 #define CASE_CALL(x) case State::x: on_state_##x(now_ms); break;
     CASE_CALL(init)
     CASE_CALL(init_failed)
     CASE_CALL(idle)
-    CASE_CALL(running)
-    CASE_CALL(run_failed)
+    CASE_CALL(transfer_init)
+    CASE_CALL(transfer_wait)
+    CASE_CALL(transfer_timeout)
+    CASE_CALL(next_channel)
+    CASE_CALL(run_finished)
 #undef CASE_CALL
     default:
       //LOG("ERROR: Unexpected state=%u", state_);
@@ -3675,163 +3792,105 @@ void I_Meter::on_loop(uint32_t now_ms)
 }
 
 // Config.OS == 0 -- ADC performs conversion
-bool I_Meter::poll(bool & ready)
+bool I_Meters::poll(bool & ready)
 {
   ::nc::i2c::adc_regs::Config c = {};
   const auto r = ::nc::i2c::adc.read_repeat( *(uint16_t*) &c);
-  if (!r) {
-    ++stats_[channel_].poll_timeout_;
-  } else {
-    ready = c.OS;
-    ++stats_[channel_].poll_;
-  }
+  ++stats.poll[r];
+  ready = r && c.OS;
   return r;
 }
 
-bool I_Meter::read(uint16_t & v)
+bool I_Meters::read(uint16_t & v)
 {
   const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Conversion, v);
-  if (!r) {
-    ++stats_[channel_].read_timeout_;
-  } else {
-    ++stats_[channel_].read_;
-  }
+  ++stats.read[r];
   return r;
 }
 
-#define I_Meter_Measurements_STRLEN ( \
-  CONSTSTRLEN("/TEST/I2C") \
-  + CONSTSTRLEN(" 1234567890") \
-  \
-  + CONSTSTRLEN(" SA=1234567890") \
-  + ( \
-    + CONSTSTRLEN(" 61440000") \
-  ) * I_METER_CHANNELS_COUNT \
-  \
-  + CONSTSTRLEN("  XX") \
-  + CONSTSTRLEN("\n") \
-)
-
-void I_Meter::reportMeasurements(
-    ::nc::mk::Buffer & b,
-    uint32_t now_ms,
-    uint32_t test_start_time_ms) const
-{
-  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
-    const auto v = conversion_results[i];
-    // 6.144 / 32768. = 0.0001875
-    // const auto volts = double(v) * 6.144 / 32768.;
-    b.printf(" %8u", v * 1875);
-  }
-}
-
-void I_Meter::reportMeasurements(
-    uint32_t now_ms,
-    uint32_t test_start_time_ms) const
-{
-  char buffer[I_Meter_Measurements_STRLEN+1];
-  size_t buffer_size = sizeof(buffer);
-
-  ::nc::mk::Buffer b(buffer, buffer_size);
-
-  b.printf("/TEST/I2C");
-  b.printf(" %10u", now_ms - test_start_time_ms);
-  b.printf(" SA=%10u", start_time_ms_ - test_start_time_ms);
-  iMeter.reportMeasurements(b, now_ms, test_start_time_ms);
-  b.printf("  XX\n");
-
-  const auto need = b.need();
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
-}
-
-#define I_Meter_Stats_STRLEN ( \
-  CONSTSTRLEN("I_Meter/stats") \
-  + ( \
-    + CONSTSTRLEN("  0:") \
-    + CONSTSTRLEN(" start=1234567890/1234567890") \
-    + CONSTSTRLEN(" poll=1234567890/1234567890") \
-    + CONSTSTRLEN(" read=1234567890/1234567890") \
-  ) * I_METER_CHANNELS_COUNT \
-  + CONSTSTRLEN("\n") \
-)
-
-void I_Meter::reportStats(::nc::mk::Buffer & b) const
-{
-  for (unsigned i = 0; i < I_METER_CHANNELS_COUNT; ++i) {
-    const auto & stats = stats_[i];
-    b.printf(
-        "  %u:"
-        " start=%u/%u"
-        " poll=%u/%u"
-        " read=%u/%u",
-        i,
-        stats.start_, stats.start_timeout_,
-        stats.poll_, stats.poll_timeout_,
-        stats.read_, stats.read_timeout_);
-  }
-}
-
-void I_Meter::reportStats() const
-{
-  char buffer[I_Meter_Stats_STRLEN+1];
-  size_t buffer_size = sizeof(buffer);
-  ::nc::mk::Buffer b(buffer, buffer_size);
-  b.printf("I_Meter/stats");
-  reportStats(b);
-  b.printf("\n");
-  const auto need = b.need();
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
-}
-
-bool I_Meter::start()
+bool I_Meters::start()
 {
   const auto r = ::nc::i2c::adc.start_single_conversion(channel_);
-  if (!r) {
-    ++stats_[channel_].start_timeout_;
-  } else {
-    ++stats_[channel_].start_;
-  }
+  ++stats.start[r];
   return r;
 }
 
-void I_Meter::on_state_idle(uint32_t now_ms)
+void I_Meters::on_state_idle(uint32_t now_ms)
 {
   if (run_) {
     run_ = false;
-    measurementsValid_ = false;
+    run_finished_ = false;
 
     start_time_ms_ = now_ms;
-
     channel_ = 0;
 
-    //constexpr uint32_t single_conversion_timeout_ms = 2;
-    timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
-    //LOG("timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64, timeout_time_ms_, now_ms, esp_timer_get_time());
-
-    state(
-      (start())
-        ? State::running
-        : State::run_failed
-    );
+    state(State::transfer_init);
   }
 }
 
-void I_Meter::on_state_init(uint32_t now_ms)
+void I_Meters::on_state_init(uint32_t now_ms)
 {
   state( (::nc::i2c::adc.init()) ? State::idle : State::init_failed);
 }
 
 // Can be used to implement delay before init retry
-void I_Meter::on_state_init_failed(uint32_t now_ms)
+void I_Meters::on_state_init_failed(uint32_t now_ms)
 {
   (void) now_ms;
   state(State::idle);
 }
 
-void I_Meter::on_state_run_failed(uint32_t now_ms)
+void I_Meters::on_state_next_channel(uint32_t now_ms)
 {
-  (void) now_ms;
+  ++channel_;
+  if (channel_ < I_METERS_COUNT) {
+    state(State::transfer_init);
+  } else {
+    state(State::run_finished);
+  }
+}
+
+void I_Meters::on_state_run_finished(uint32_t now_ms)
+{
+  end_time_ms_ = now_ms;
+  run_finished_ = true;
   state(State::idle);
+}
+
+const char * I_Meters::to_string(State state)
+{
+  static const char * const state_names[] = {
+    "init",
+    "init_failed",
+    "idle",
+    "transfer_init",
+    "transfer_wait",
+    "transfer_timeout",
+    "next_sensor",
+    "run_finished",
+  };
+  const auto i = unsigned(state);
+  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
+}
+
+void I_Meters::on_state_transfer_init(uint32_t now_ms)
+{
+  timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
+
+  state(
+    (!start())
+      ? State::next_channel
+      : State::transfer_wait
+  );
+}
+
+void I_Meters::on_state_transfer_timeout(uint32_t now_ms)
+{
+  LOG("WARNING: %s %s (timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64 ")",
+      "i2c ADC 'conversion'", "timeout", timeout_time_ms_, now_ms,
+      esp_timer_get_time());
+
+  state(State::next_channel);
 }
 
 /*
@@ -3840,76 +3899,100 @@ void I_Meter::on_state_run_failed(uint32_t now_ms)
     register.
 */
 
-void I_Meter::on_state_running(uint32_t now_ms)
+void I_Meters::on_state_transfer_wait(uint32_t now_ms)
 {
   bool ready;
   if (!poll(ready)) {
-    state(State::run_failed);
+    state(State::next_channel);
     return;
   }
 
   if (!ready) {
     if (timeout_time_ms_ <= now_ms) {
-      LOG("WARNING: %s %s (timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64 ")",
-          "i2c ADC 'conversion'", "timeout", timeout_time_ms_, now_ms,
-          esp_timer_get_time());
-      state(State::run_failed);
+      state(State::transfer_timeout);
     }
     return;
   }
 
   uint16_t v = 0;
   const auto r = read(v);
-  if (!r) {
-    state(State::run_failed);
-    return;
-  }
-  conversion_results[channel_] = v;
-  //LOG("channel=%u v=0x%04X/%u/%i", channel_, v, v, int16_t(v));
-
-  ++channel_;
-  if (channel_ < I_METER_CHANNELS_COUNT) {
-
-    timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
-    //LOG("timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64, timeout_time_ms_, now_ms, esp_timer_get_time());
-
-    if (!start()) {
-      state(State::run_failed);
-    }
-    return;
+  if (r) {
+    iMeters_[channel_].value = v;
+    iMeters_[channel_].status.transfer_done = true;;
   }
 
-  end_time_ms_ = now_ms;
-
-  measurementsValid_ = true;
-
-#if 0
-  LOG("ms2=%" PRIu32 " - ms1=%" PRIu32 " =%" PRIu32,
-      end_time_ms_, start_time_ms_, end_time_ms_ - start_time_ms_);
-#endif
-
-  state(State::idle);
+  state(State::next_channel);
 }
 
-const char * I_Meter::to_string(State state)
+void I_Meters::state(State new_state)
 {
-  static const char * const state_names[] = {
-    "init",
-    "init_failed",
-    "idle",
-    "running",
-    "run_failed",
-  };
-  const auto i = unsigned(state);
-  return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
-}
-
-void I_Meter::state(State new_state)
-{
+#if defined iMeters_state_verbose
   const auto old_state_name = to_string(state_);
+#endif
   state_ = new_state;
+#if defined iMeters_state_verbose
   const auto new_state_name = to_string(state_);
-  //LOG("'%s' -> '%s'", old_state_name, new_state_name);
+  LOG("'%s' -> '%s'", old_state_name, new_state_name);
+#endif
+}
+
+::nc::mk::Buffer &
+I_Meters::Stats::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  return b
+    << start
+    << poll
+    << read;
+}
+
+namespace nc {
+namespace i2c {
+namespace stats {
+
+#define I_Meter_Stats_STRLEN ( \
+  CONSTSTRLEN("/I2C/ADC/iMeter/STATS") \
+  + CONSTSTRLEN(" 123465790") \
+  + CONSTSTRLEN(" 123465790") \
+  + CONSTSTRLEN(" 123465790") \
+  + CONSTSTRLEN(" XX") \
+  + CONSTSTRLEN("\n") \
+)
+
+void report()
+{
+  char buffer[I_Meter_Stats_STRLEN+1];
+  size_t buffer_size = sizeof(buffer);
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/I2C/ADC/iMeter/STATS");
+
+  b << iMeters.stats;
+
+  b.printf(" XX");
+  b.printf("\n");
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
+}
+
+} // namespace stats
+} // namespace i2c
+} // namespace nc
+
+::nc::mk::Buffer &
+I_Meter::Status::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  return b
+    << ' '
+    << uint8_t(!transfer_done);
+}
+
+::nc::mk::Buffer &
+I_Meters::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  for (unsigned i = 0; i < I_METERS_COUNT; ++i) {
+    b << iMeters_[i];
+  }
+  return b;
 }
 
 ::nc::mk::Buffer &
@@ -4164,19 +4247,19 @@ static float scale_T(uint16_t v)
 static void report_I_raw()
 {
   Serial.print(" I0raw:");
-  Serial.print(iMeter.conversion_results[0]);
+  Serial.print(iMeters.iMeters_[0].value);
 
   Serial.print(" I1raw:");
-  Serial.print(iMeter.conversion_results[1]);
+  Serial.print(iMeters.iMeters_[1].value);
 }
 
 static void report_I()
 {
   Serial.print(" I0:");
-  Serial.print(scale_I(iMeter.conversion_results[0]),7);
+  Serial.print(scale_I(iMeters.iMeters_[0].value),7);
 
   Serial.print(" I1:");
-  Serial.print(scale_I(iMeter.conversion_results[1]),7);
+  Serial.print(scale_I(iMeters.iMeters_[1].value),7);
 }
 
 static void report_V(
@@ -4296,7 +4379,7 @@ void Monitor::on_state_measure_init(uint32_t now_ms)
   measure_.timeout_time_ms_ = now_ms + measure_.timeout_ms;
 
   ::nc::spi::sensors.run();
-  iMeter.run();
+  iMeters.run();
 
   state(State::measure_wait);
 }
@@ -4311,7 +4394,7 @@ void Monitor::on_state_measure_wait(uint32_t now_ms)
     state(State::stop);
   } else
   if (::nc::spi::sensors.run_finished()
-  && iMeter.isMeasurementFinished()) {
+  && iMeters.run_finished()) {
     state(State::measure_done);
   } else
   if (measure_.timeout_time_ms_ <= now_ms) {
@@ -4790,50 +4873,6 @@ void report_config()
   ::nc::spi::report_build_config();
 }
 
-namespace rpi {
-
-#define STATS_STRLEN ( \
-  CONSTSTRLEN("/STATS") \
-  \
-  + CONSTSTRLEN(" i2c/adc") \
-  + ( \
-    + CONSTSTRLEN("  0:") \
-    + CONSTSTRLEN(" start=1234567890/1234567890") \
-    + CONSTSTRLEN(" poll=1234567890/1234567890") \
-    + CONSTSTRLEN(" read=1234567890/1234567890") \
-  ) * I_METER_CHANNELS_COUNT \
-  \
-  + CONSTSTRLEN(" spi") \
-  + CONSTSTRLEN(" rx_bits=ok/ng") \
-  + CONSTSTRLEN(" 999/999") * SPI_SENSORS_COUNT \
-  + CONSTSTRLEN(" crc=on/ng") \
-  + CONSTSTRLEN(" 999/999") * SPI_SENSORS_COUNT \
-  \
-  + CONSTSTRLEN("\n") \
-)
-
-void reportStats()
-{
-  char buffer[STATS_STRLEN+1];
-  size_t buffer_size = sizeof(buffer);
-  ::nc::mk::Buffer b(buffer, buffer_size);
-
-  b.printf("/STATS");
-
-  b.printf(" i2c/adc");
-  iMeter.reportStats(b);
-
-  b.printf(" spi");
-  b << ::nc::spi::sensors.stats;
-
-  b.printf("\n");
-
-  const auto need = b.need();
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, need);
-}
-
-} // namespace rpi
-
 void serial_write_buffer(
     const char * file, unsigned line, const char * function,
     char * buffer, size_t buffer_size, size_t used)
@@ -4933,6 +4972,7 @@ void spi_data(const char * args)
   }
 #endif
 
+  b.printf(" XX");
   b.printf("\n");
 
   SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
@@ -4960,6 +5000,7 @@ void spi_data_raw(const char * args)
     b << ::nc::spi::sensors.sensors_[i].raw;
   }
 
+  b.printf(" XX");
   b.printf("\n");
 
   SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
@@ -4974,7 +5015,7 @@ namespace cli {
 void spi_dump(const char * args)
 {
   (void) args;
-  spi_report_stats();
+  ::nc::spi::stats::report();
   spi_report_data();
 }
 
@@ -4999,19 +5040,7 @@ namespace cli {
 void spi_stats(const char * args)
 {
   (void) args;
-
-  auto & buffer = ::nc::shared_buffers.spi_stats_buffer;
-  size_t buffer_size = sizeof(buffer);
-  ::nc::mk::Buffer b(buffer, buffer_size);
-
-  b.printf("/STATS/SPI/SENSORS");
-
-  //b << ::nc::spi::sensors.stats;
-  ::nc::spi::sensors.stats_to_buffer(b);
-
-  b.printf("\n");
-
-  SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
+  ::nc::spi::stats::report();
 }
 
 } // namespace cli
@@ -5251,17 +5280,6 @@ void report_build_config()
 } // namespace spi
 } // namespace nc
 
-void spi_report_stats()
-{
-  LOG(". post_setup_cb_count=%u post_trans_cb_count=%u",
-      ::nc::spi::sensors.stats.post_setup_cb_count,
-      ::nc::spi::sensors.stats.post_trans_cb_count);
-
-  for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
-    hex_dump(::nc::spi::sensors.sensors_[i].raw.rx_buffer, SPI_DATA_SIZE);
-  }
-}
-
 namespace nc {
 namespace spi {
 
@@ -5403,7 +5421,7 @@ namespace spi {
 
 bool Sensors::hw_transfer_start()
 {
-  sensors_[sensor_n_].raw.reset();
+  //sensors_[sensor_n_].raw.reset();
   spi_mr_mux(sensor_n_);
 
   if (!hw.chip_.init()) { return false;}
@@ -5524,6 +5542,7 @@ void Sensors::on_state_idle(uint32_t now_ms)
 
     transfer_start_time_ms_ = now_ms;
     sensor_n_ = 0;
+
     state(State::transfer_init);
   }
 }
@@ -5578,9 +5597,6 @@ namespace spi {
 void Sensors::on_state_run_finished(uint32_t now_ms)
 {
   transfer_end_time_ms_ = now_ms;
-
-  //::nc::spi::sensors::validate();
-
   run_finished_ = true;
   state(State::idle);
 }
@@ -5663,6 +5679,7 @@ void Sensors::on_state_transfer_wait(uint32_t now_ms)
     sensor.raw.status.transfer_done = true;
     sensor.raw.status.rx_bits = hw.rx_bits();
     sensor.raw.update_crc_valid();
+
     sensor.update_data();
 
     ++sensor.stats.transfer.ok();
@@ -5685,11 +5702,11 @@ namespace spi {
 
 void Sensors::state(State new_state)
 {
-#if defined nc_Monitor_state_verbose
+#if defined spi_Sensors_state_verbose
   const auto old_state_name = to_string(state_);
 #endif
   state_ = new_state;
-#if defined nc_Monitor_state_verbose
+#if defined spi_Sensors_state_verbose
   const auto new_state_name = to_string(state_);
   LOG("'%s' -> '%s'", old_state_name, new_state_name);
 #endif
@@ -5790,6 +5807,30 @@ void spi_report_data()
     SensorDevice_Data_report_one(i);
   }
 }
+
+namespace nc {
+namespace spi {
+namespace stats {
+
+void report()
+{
+  auto & buffer = ::nc::shared_buffers.spi_stats_buffer;
+  size_t buffer_size = sizeof(buffer);
+  ::nc::mk::Buffer b(buffer, buffer_size);
+
+  b.printf("/SPI/SENSORS/STATS");
+
+  ::nc::spi::sensors.stats_to_buffer(b);
+
+  b.printf(" XX");
+  b.printf("\n");
+
+  SERIAL_WRITE_BUFFER(buffer, buffer_size, b.need());
+}
+
+} // namespace stats
+} // namespace spi
+} // namespace nc
 
 namespace nc {
 namespace stats {
@@ -5941,7 +5982,7 @@ void Test::on_loop(uint32_t now_ms)
   \
   + ( \
     + CONSTSTRLEN(" 61440000") \
-  ) * I_METER_CHANNELS_COUNT \
+  ) * I_METERS_COUNT \
   \
   + ( \
     CONSTSTRLEN("  123456") \
@@ -5986,7 +6027,7 @@ void Test::report_step_data(
   b.printf(" %10u", now_ms - test_start_time_ms);
 
 //b.printf("  |");
-  iMeter.reportMeasurements(b, now_ms, test_start_time_ms);
+  b << iMeters;
 //b.printf("  |");
   b << ::nc::spi::sensors;
 
@@ -6117,7 +6158,7 @@ void Test::on_state_measure_init(uint32_t now_ms)
   measure_.timeout_time_ms_ = now_ms + measure_.timeout_ms;
 
   ::nc::spi::sensors.run();
-  iMeter.run();
+  iMeters.run();
 
   state(State::measure_wait);
 }
@@ -6131,22 +6172,15 @@ void Test::on_state_measure_wait(uint32_t now_ms)
     state(State::abort);
   } else
   if (::nc::spi::sensors.run_finished()
-  && iMeter.isMeasurementFinished()) {
+  && iMeters.run_finished()) {
     // --- 'measure end' ---
     measure_.end_time_actual_ms_ = now_ms;
 
-    // FIXME: Do not abort test on invalid measurements.
+    // report measurements
+    report_step_data(now_ms, test_start_time_ms_);
 
-    if (!iMeter.areMeasurementsValid()) {
-      LOG("ERROR: 'current' measurements are invalid");
-      state(State::abort);
-    } else {
-      // report measurements
-      report_step_data(now_ms, test_start_time_ms_);
-
-      // start next sub step
-      state(State::sub_step_next);
-    }
+    // start next sub step
+    state(State::sub_step_next);
   } else
   if (measure_.timeout_time_ms_ <= now_ms) {
     LOG("ERROR: measurements timeout");
@@ -6207,8 +6241,11 @@ void Test::on_state_cleanup(uint32_t now_ms)
   deactivate_PS_EL();
   LOG("--- test finished ---");
   Serial.print("/TEST/FINISHED\n");
+
   uart_stats_report();
-  ::rpi::reportStats();
+  ::nc::i2c::stats::report();
+  ::nc::spi::stats::report();
+
   state(State::idle);
 }
 
@@ -7067,7 +7104,7 @@ static Runnable * const runnables_[] = {
   &cnDevice,
   &psDevice,
   &elDevice,
-  &iMeter,
+  &iMeters,
   &::nc::spi::sensors,
   &test,
   &::nc::monitor_,
