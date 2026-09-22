@@ -6200,7 +6200,7 @@ void Test::on_state_sub_step_next(uint32_t now_ms)
     LOG("ERROR: sub_.step_.count_=%u limit=%u exceeded",
         sub_.step_.count_, sub_step_count_max_);
     state(State::abort);
-  }
+  } else
 #endif
   if (now_ms < step_.end_time_planned_ms_) {
     //LOG(". now_ms=%u < step_.end_time_planned_ms_=%u", now_ms, step_.end_time_planned_ms_);
