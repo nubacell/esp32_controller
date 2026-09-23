@@ -4,7 +4,7 @@ namespace i2c {
 namespace stats {
 
 #define I_Meter_Stats_STRLEN ( \
-  CONSTSTRLEN("/I2C/ADC/iMeter/STATS") \
+  CONSTSTRLEN("/STATS/I2C/ADC/iMeter") \
   + CONSTSTRLEN(" 123465790") \
   + CONSTSTRLEN(" 123465790") \
   + CONSTSTRLEN(" 123465790") \
@@ -18,7 +18,7 @@ void report()
   size_t buffer_size = sizeof(buffer);
   ::nc::mk::Buffer b(buffer, buffer_size);
 
-  b.printf("/I2C/ADC/iMeter/STATS");
+  b.printf("/STATS/I2C/ADC/iMeter");
 
   b << iMeters.stats;
 

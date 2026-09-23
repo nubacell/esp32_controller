@@ -9,7 +9,7 @@ void report()
   size_t buffer_size = sizeof(buffer);
   ::nc::mk::Buffer b(buffer, buffer_size);
 
-  b.printf("/SPI/SENSORS/STATS");
+  b.printf("/STATS/SPI/SENSORS");
 
   ::nc::spi::sensors.stats_to_buffer(b);
 
