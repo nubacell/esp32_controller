@@ -30,17 +30,17 @@ struct I_Meters
 
   uint8_t channel_;
 
-  bool start();
-  bool poll(bool & ready);
-  bool read(uint16_t & v);
+  bool adc_start();
+  bool adc_poll(bool & ready);
+  bool adc_read(uint16_t & v);
 
   enum class State : uint8_t {
     init,
     init_failed,
     idle,
-    transfer_init,
-    transfer_wait,
-    transfer_timeout,
+    adc_init,
+    adc_wait,
+    adc_timeout,
     next_channel,
     run_finished,
   };
@@ -51,9 +51,9 @@ struct I_Meters
   void on_state_init(uint32_t now_ms);
   void on_state_init_failed(uint32_t now_ms);
   void on_state_idle(uint32_t now_ms);
-  void on_state_transfer_init(uint32_t now_ms);
-  void on_state_transfer_wait(uint32_t now_ms);
-  void on_state_transfer_timeout(uint32_t now_ms);
+  void on_state_adc_init(uint32_t now_ms);
+  void on_state_adc_wait(uint32_t now_ms);
+  void on_state_adc_timeout(uint32_t now_ms);
   void on_state_next_channel(uint32_t now_ms);
   void on_state_run_finished(uint32_t now_ms);
 

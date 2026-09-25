@@ -3,9 +3,9 @@ struct I_Meter
 {
   struct Status
   {
-    bool transfer_done;
+    bool adc_done;
 
-    inline void reset() { transfer_done = false; }
+    inline void reset() { adc_done = false; }
 
     ::nc::mk::Buffer &
     to_buffer(::nc::mk::Buffer & b) const noexcept;

@@ -1276,11 +1276,6 @@ extern Adc adc;
 } // namespace i2c
 } // namespace nc
 
-void i2c_probe(const char * args);
-void i2c_adc_read(const char * args);
-void i2c_adc_read_repeat(const char * args);
-void i2c_adc_write(const char * args);
-
 void i2c_adc_report(const char * args);
 
 void i2c_adc_run(const char * args);
@@ -1291,9 +1286,9 @@ struct I_Meter
 {
   struct Status
   {
-    bool transfer_done;
+    bool adc_done;
 
-    inline void reset() { transfer_done = false; }
+    inline void reset() { adc_done = false; }
 
     ::nc::mk::Buffer &
     to_buffer(::nc::mk::Buffer & b) const noexcept;
@@ -1357,17 +1352,17 @@ struct I_Meters
 
   uint8_t channel_;
 
-  bool start();
-  bool poll(bool & ready);
-  bool read(uint16_t & v);
+  bool adc_start();
+  bool adc_poll(bool & ready);
+  bool adc_read(uint16_t & v);
 
   enum class State : uint8_t {
     init,
     init_failed,
     idle,
-    transfer_init,
-    transfer_wait,
-    transfer_timeout,
+    adc_init,
+    adc_wait,
+    adc_timeout,
     next_channel,
     run_finished,
   };
@@ -1378,9 +1373,9 @@ struct I_Meters
   void on_state_init(uint32_t now_ms);
   void on_state_init_failed(uint32_t now_ms);
   void on_state_idle(uint32_t now_ms);
-  void on_state_transfer_init(uint32_t now_ms);
-  void on_state_transfer_wait(uint32_t now_ms);
-  void on_state_transfer_timeout(uint32_t now_ms);
+  void on_state_adc_init(uint32_t now_ms);
+  void on_state_adc_wait(uint32_t now_ms);
+  void on_state_adc_timeout(uint32_t now_ms);
   void on_state_next_channel(uint32_t now_ms);
   void on_state_run_finished(uint32_t now_ms);
 
@@ -1908,24 +1903,27 @@ namespace spi {
 
 struct Sensor
 {
-  struct Stats
-  {
-    ::nc::stats::OkNg transfer;
-    ::nc::stats::OkNg rx_bits;
-    ::nc::stats::OkNg crc;
-
-    static constexpr const char * const tags[] = {
-      "transfer",
-      "rx_bits",
-      "crc",
-    };
-
-    ::nc::mk::Buffer &
-    to_buffer(::nc::mk::Buffer & b) const noexcept;
-  } stats;
-
+  // FIXME: Looks like 'Stats' belongs to 'Raw'
   struct Raw
   {
+    struct Stats
+    {
+      ::nc::stats::OkNg transfer_init;
+      ::nc::stats::OkNg transfer_done;
+      ::nc::stats::OkNg rx_bits;
+      ::nc::stats::OkNg crc;
+
+      static constexpr const char * const tags[] = {
+        "transfer_init",
+        "transfer_done",
+        "rx_bits",
+        "crc",
+      };
+
+      ::nc::mk::Buffer &
+      to_buffer(::nc::mk::Buffer & b) const noexcept;
+    } stats;
+
     uint8_t tx_buffer[SPI_BUFFER_SIZE];
     union
     {
@@ -1972,7 +1970,7 @@ inline
 ::nc::mk::Buffer &
 operator<<(
     ::nc::mk::Buffer & b,
-    const ::nc::spi::Sensor::Stats & stats) noexcept
+    const ::nc::spi::Sensor::Raw::Stats & stats) noexcept
 {
   return stats.to_buffer(b);
 }
@@ -2047,7 +2045,8 @@ struct Sensors
     bool active_;
     uint16_t rx_bits() const { return transaction_.trans_len; }
   } hw;
-  bool hw_transfer_start();
+  bool hw_transfer_init_impl();
+  bool hw_transfer_init();
 
   uint8_t sensor_n_;
 
@@ -3717,6 +3716,30 @@ bool Adc::start_single_conversion(unsigned channel)
 } // namespace i2c
 } // namespace nc
 
+// Config.OS == 0 -- ADC performs conversion
+bool I_Meters::adc_poll(bool & ready)
+{
+  ::nc::i2c::adc_regs::Config c = {};
+  const auto r = ::nc::i2c::adc.read_repeat( *(uint16_t*) &c);
+  ++stats.poll[r];
+  ready = r && c.OS;
+  return r;
+}
+
+bool I_Meters::adc_read(uint16_t & v)
+{
+  const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Conversion, v);
+  ++stats.read[r];
+  return r;
+}
+
+bool I_Meters::adc_start()
+{
+  const auto r = ::nc::i2c::adc.start_single_conversion(channel_);
+  ++stats.start[r];
+  return r;
+}
+
 #define I_Meter_Measurements_STRLEN ( \
   CONSTSTRLEN("/I2C/ADC/iMeter/DATA") \
   \
@@ -3778,9 +3801,9 @@ void I_Meters::on_loop(uint32_t now_ms)
     CASE_CALL(init)
     CASE_CALL(init_failed)
     CASE_CALL(idle)
-    CASE_CALL(transfer_init)
-    CASE_CALL(transfer_wait)
-    CASE_CALL(transfer_timeout)
+    CASE_CALL(adc_init)
+    CASE_CALL(adc_wait)
+    CASE_CALL(adc_timeout)
     CASE_CALL(next_channel)
     CASE_CALL(run_finished)
 #undef CASE_CALL
@@ -3791,28 +3814,55 @@ void I_Meters::on_loop(uint32_t now_ms)
   }
 }
 
-// Config.OS == 0 -- ADC performs conversion
-bool I_Meters::poll(bool & ready)
+void I_Meters::on_state_adc_init(uint32_t now_ms)
 {
-  ::nc::i2c::adc_regs::Config c = {};
-  const auto r = ::nc::i2c::adc.read_repeat( *(uint16_t*) &c);
-  ++stats.poll[r];
-  ready = r && c.OS;
-  return r;
+  timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
+
+  state(
+    (!adc_start())
+      ? State::next_channel
+      : State::adc_wait
+  );
 }
 
-bool I_Meters::read(uint16_t & v)
+void I_Meters::on_state_adc_timeout(uint32_t now_ms)
 {
-  const auto r = ::nc::i2c::adc.read(::nc::i2c::Adc::Register::Conversion, v);
-  ++stats.read[r];
-  return r;
+  LOG("WARNING: %s %s (timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64 ")",
+      "i2c ADC 'conversion'", "timeout", timeout_time_ms_, now_ms,
+      esp_timer_get_time());
+
+  state(State::next_channel);
 }
 
-bool I_Meters::start()
+/*
+    After 'start_single_conversion()' 'index register' already refers to
+    'Config' register and 'read_repeat()' may be used to read 'Config'
+    register.
+*/
+
+void I_Meters::on_state_adc_wait(uint32_t now_ms)
 {
-  const auto r = ::nc::i2c::adc.start_single_conversion(channel_);
-  ++stats.start[r];
-  return r;
+  bool ready;
+  if (!adc_poll(ready)) {
+    state(State::next_channel);
+    return;
+  }
+
+  if (!ready) {
+    if (timeout_time_ms_ <= now_ms) {
+      state(State::adc_timeout);
+    }
+    return;
+  }
+
+  uint16_t v = 0;
+  const auto r = adc_read(v);
+  if (r) {
+    iMeters_[channel_].value = v;
+    iMeters_[channel_].status.adc_done = true;;
+  }
+
+  state(State::next_channel);
 }
 
 void I_Meters::on_state_idle(uint32_t now_ms)
@@ -3824,7 +3874,7 @@ void I_Meters::on_state_idle(uint32_t now_ms)
     start_time_ms_ = now_ms;
     channel_ = 0;
 
-    state(State::transfer_init);
+    state(State::adc_init);
   }
 }
 
@@ -3844,7 +3894,7 @@ void I_Meters::on_state_next_channel(uint32_t now_ms)
 {
   ++channel_;
   if (channel_ < I_METERS_COUNT) {
-    state(State::transfer_init);
+    state(State::adc_init);
   } else {
     state(State::run_finished);
   }
@@ -3863,65 +3913,14 @@ const char * I_Meters::to_string(State state)
     "init",
     "init_failed",
     "idle",
-    "transfer_init",
-    "transfer_wait",
-    "transfer_timeout",
+    "adc_init",
+    "adc_wait",
+    "adc_timeout",
     "next_sensor",
     "run_finished",
   };
   const auto i = unsigned(state);
   return (i < ARRAY_SIZE(state_names)) ? state_names[i] : "?";
-}
-
-void I_Meters::on_state_transfer_init(uint32_t now_ms)
-{
-  timeout_time_ms_ = now_ms + single_conversion_timeout_ms;
-
-  state(
-    (!start())
-      ? State::next_channel
-      : State::transfer_wait
-  );
-}
-
-void I_Meters::on_state_transfer_timeout(uint32_t now_ms)
-{
-  LOG("WARNING: %s %s (timeout_time_ms=%u, now_ms=%u now_us=%" PRIu64 ")",
-      "i2c ADC 'conversion'", "timeout", timeout_time_ms_, now_ms,
-      esp_timer_get_time());
-
-  state(State::next_channel);
-}
-
-/*
-    After 'start_single_conversion()' 'index register' already refers to
-    'Config' register and 'read_repeat()' may be used to read 'Config'
-    register.
-*/
-
-void I_Meters::on_state_transfer_wait(uint32_t now_ms)
-{
-  bool ready;
-  if (!poll(ready)) {
-    state(State::next_channel);
-    return;
-  }
-
-  if (!ready) {
-    if (timeout_time_ms_ <= now_ms) {
-      state(State::transfer_timeout);
-    }
-    return;
-  }
-
-  uint16_t v = 0;
-  const auto r = read(v);
-  if (r) {
-    iMeters_[channel_].value = v;
-    iMeters_[channel_].status.transfer_done = true;;
-  }
-
-  state(State::next_channel);
 }
 
 void I_Meters::state(State new_state)
@@ -3983,7 +3982,7 @@ I_Meter::Status::to_buffer(::nc::mk::Buffer & b) const noexcept
 {
   return b
     << ' '
-    << uint8_t(!transfer_done);
+    << uint8_t(!adc_done);
 }
 
 ::nc::mk::Buffer &
@@ -5319,6 +5318,23 @@ void Sensor::Raw::reset()
 } // namespace spi
 } // namespace nc
 
+//namespace nc {
+//namespace spi {
+
+::nc::mk::Buffer &
+::nc::spi::Sensor::Raw::Stats::to_buffer(::nc::mk::Buffer & b) const noexcept
+{
+  return b
+    << ' '
+    << transfer_init
+    << transfer_done
+    << rx_bits
+    << crc;
+}
+
+//} // namespace spi
+//} // namespace nc
+
 ::nc::mk::Buffer &
 ::nc::spi::Sensor::Raw::Status::to_buffer(::nc::mk::Buffer & b) const noexcept
 {
@@ -5360,29 +5376,6 @@ void Sensor::Raw::update_crc_valid()
 } // namespace spi
 } // namespace nc
 
-//namespace nc {
-//namespace spi {
-
-::nc::mk::Buffer &
-::nc::spi::Sensor::Stats::to_buffer(::nc::mk::Buffer & b) const noexcept
-{
-/*
-  LOG("&transfer=%p counter: [0]=%" PRIu64 " [1]=%" PRIu64 "",
-      &transfer,
-      transfer.counter_[0],
-      transfer.counter_[1]);
-  hex_dump( (const uint8_t *) &transfer, sizeof(transfer));
-*/
-
-  return b
-    << transfer
-    << rx_bits
-    << crc;
-}
-
-//} // namespace spi
-//} // namespace nc
-
 ::nc::mk::Buffer &
 ::nc::spi::Sensor::to_buffer(::nc::mk::Buffer & b) const noexcept
 {
@@ -5416,10 +5409,8 @@ namespace spi {
     that memory occupied by 'spi_slave_transaction_t' must be preserved until
     the end of transmission which is notified by 'post_trans_cb' callback.
 */
-//static
-//spi_slave_transaction_t Sensors::hw::transaction_;
 
-bool Sensors::hw_transfer_start()
+bool Sensors::hw_transfer_init_impl()
 {
   //sensors_[sensor_n_].raw.reset();
   spi_mr_mux(sensor_n_);
@@ -5443,6 +5434,13 @@ bool Sensors::hw_transfer_start()
     LOG("ERROR: %s() failure", "spi_slave_queue_trans");
     hw.chip_.down();
   }
+  return r;
+}
+
+bool Sensors::hw_transfer_init()
+{
+  const auto r = hw_transfer_init_impl();
+  ++sensors_[sensor_n_].raw.stats.transfer_init[r];
   return r;
 }
 
@@ -5639,8 +5637,7 @@ void Sensors::on_state_transfer_init(uint32_t now_ms)
   }
 
   timeout_time_ms_ = now_ms + single_transfer_timeout_ms;
-  if (!hw_transfer_start()) {
-    ++sensors_[sensor_n_].stats.transfer.ng();
+  if (!hw_transfer_init()) {
     state(State::next_sensor);
   } else {
     state(State::transfer_wait);
@@ -5677,19 +5674,21 @@ void Sensors::on_state_transfer_wait(uint32_t now_ms)
     auto & sensor = sensors_[sensor_n_];
 
     sensor.raw.status.transfer_done = true;
+    ++sensor.raw.stats.transfer_done.ok();
+
     sensor.raw.status.rx_bits = hw.rx_bits();
+    ++sensor.raw.stats.rx_bits[sensor.raw.status.rx_bits_valid()];
+
     sensor.raw.update_crc_valid();
+    ++sensor.raw.stats.crc[sensor.raw.status.is_crc_valid()];
 
     sensor.update_data();
-
-    ++sensor.stats.transfer.ok();
-    ++sensor.stats.rx_bits[sensor.raw.status.rx_bits_valid()];
-    ++sensor.stats.crc[sensor.raw.status.is_crc_valid()];
 
     state(State::next_sensor);
   } else
   if (timeout_time_ms_ <= now_ms) {
-    ++sensors_[sensor_n_].stats.transfer.ng();
+    auto & sensor = sensors_[sensor_n_];
+    ++sensor.raw.stats.transfer_done.ng();
     state(State::transfer_timeout);
   }
 }
@@ -5734,7 +5733,7 @@ Sensors::stats_to_buffer(::nc::mk::Buffer & b) const noexcept
   stats.to_buffer(b);
   for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
     //b.printf(" %u:", i);
-    b << sensors_[i].stats;
+    b << sensors_[i].raw.stats;
   }
   return b;
 }

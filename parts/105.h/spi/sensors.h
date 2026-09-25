@@ -39,7 +39,8 @@ struct Sensors
     bool active_;
     uint16_t rx_bits() const { return transaction_.trans_len; }
   } hw;
-  bool hw_transfer_start();
+  bool hw_transfer_init_impl();
+  bool hw_transfer_init();
 
   uint8_t sensor_n_;
 

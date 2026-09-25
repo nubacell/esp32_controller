@@ -9,10 +9,8 @@ namespace spi {
     that memory occupied by 'spi_slave_transaction_t' must be preserved until
     the end of transmission which is notified by 'post_trans_cb' callback.
 */
-//static
-//spi_slave_transaction_t Sensors::hw::transaction_;
 
-bool Sensors::hw_transfer_start()
+bool Sensors::hw_transfer_init_impl()
 {
   //sensors_[sensor_n_].raw.reset();
   spi_mr_mux(sensor_n_);
@@ -36,6 +34,13 @@ bool Sensors::hw_transfer_start()
     LOG("ERROR: %s() failure", "spi_slave_queue_trans");
     hw.chip_.down();
   }
+  return r;
+}
+
+bool Sensors::hw_transfer_init()
+{
+  const auto r = hw_transfer_init_impl();
+  ++sensors_[sensor_n_].raw.stats.transfer_init[r];
   return r;
 }
 

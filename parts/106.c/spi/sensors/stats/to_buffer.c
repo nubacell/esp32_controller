@@ -18,7 +18,7 @@ Sensors::stats_to_buffer(::nc::mk::Buffer & b) const noexcept
   stats.to_buffer(b);
   for (unsigned i = 0; i < SPI_SENSORS_COUNT; ++i) {
     //b.printf(" %u:", i);
-    b << sensors_[i].stats;
+    b << sensors_[i].raw.stats;
   }
   return b;
 }

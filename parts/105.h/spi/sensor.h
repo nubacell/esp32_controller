@@ -4,24 +4,27 @@ namespace spi {
 
 struct Sensor
 {
-  struct Stats
-  {
-    ::nc::stats::OkNg transfer;
-    ::nc::stats::OkNg rx_bits;
-    ::nc::stats::OkNg crc;
-
-    static constexpr const char * const tags[] = {
-      "transfer",
-      "rx_bits",
-      "crc",
-    };
-
-    ::nc::mk::Buffer &
-    to_buffer(::nc::mk::Buffer & b) const noexcept;
-  } stats;
-
+  // FIXME: Looks like 'Stats' belongs to 'Raw'
   struct Raw
   {
+    struct Stats
+    {
+      ::nc::stats::OkNg transfer_init;
+      ::nc::stats::OkNg transfer_done;
+      ::nc::stats::OkNg rx_bits;
+      ::nc::stats::OkNg crc;
+
+      static constexpr const char * const tags[] = {
+        "transfer_init",
+        "transfer_done",
+        "rx_bits",
+        "crc",
+      };
+
+      ::nc::mk::Buffer &
+      to_buffer(::nc::mk::Buffer & b) const noexcept;
+    } stats;
+
     uint8_t tx_buffer[SPI_BUFFER_SIZE];
     union
     {
@@ -68,7 +71,7 @@ inline
 ::nc::mk::Buffer &
 operator<<(
     ::nc::mk::Buffer & b,
-    const ::nc::spi::Sensor::Stats & stats) noexcept
+    const ::nc::spi::Sensor::Raw::Stats & stats) noexcept
 {
   return stats.to_buffer(b);
 }

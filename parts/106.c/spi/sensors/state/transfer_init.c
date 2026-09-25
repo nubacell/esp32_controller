@@ -12,8 +12,7 @@ void Sensors::on_state_transfer_init(uint32_t now_ms)
   }
 
   timeout_time_ms_ = now_ms + single_transfer_timeout_ms;
-  if (!hw_transfer_start()) {
-    ++sensors_[sensor_n_].stats.transfer.ng();
+  if (!hw_transfer_init()) {
     state(State::next_sensor);
   } else {
     state(State::transfer_wait);

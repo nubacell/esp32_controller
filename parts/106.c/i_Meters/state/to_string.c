@@ -5,9 +5,9 @@ const char * I_Meters::to_string(State state)
     "init",
     "init_failed",
     "idle",
-    "transfer_init",
-    "transfer_wait",
-    "transfer_timeout",
+    "adc_init",
+    "adc_wait",
+    "adc_timeout",
     "next_sensor",
     "run_finished",
   };

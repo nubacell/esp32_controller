@@ -5,26 +5,26 @@
     register.
 */
 
-void I_Meters::on_state_transfer_wait(uint32_t now_ms)
+void I_Meters::on_state_adc_wait(uint32_t now_ms)
 {
   bool ready;
-  if (!poll(ready)) {
+  if (!adc_poll(ready)) {
     state(State::next_channel);
     return;
   }
 
   if (!ready) {
     if (timeout_time_ms_ <= now_ms) {
-      state(State::transfer_timeout);
+      state(State::adc_timeout);
     }
     return;
   }
 
   uint16_t v = 0;
-  const auto r = read(v);
+  const auto r = adc_read(v);
   if (r) {
     iMeters_[channel_].value = v;
-    iMeters_[channel_].status.transfer_done = true;;
+    iMeters_[channel_].status.adc_done = true;;
   }
 
   state(State::next_channel);

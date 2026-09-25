@@ -215,8 +215,3 @@ extern Adc adc;
 
 } // namespace i2c
 } // namespace nc
-
-void i2c_probe(const char * args);
-void i2c_adc_read(const char * args);
-void i2c_adc_read_repeat(const char * args);
-void i2c_adc_write(const char * args);
